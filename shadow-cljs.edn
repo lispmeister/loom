@@ -1,0 +1,24 @@
+{:source-paths ["src" "test"]
+
+ :dependencies [[metosin/malli "0.16.4"]]
+
+ :builds
+ {:supervisor
+  {:target :node-script
+   :output-to "out/supervisor.js"
+   :main loom.supervisor.core/main}
+
+  :agent
+  {:target :node-script
+   :output-to "out/agent.js"
+   :main loom.agent.core/main}
+
+  :lab
+  {:target :node-script
+   :output-to "out/lab.js"
+   :main loom.lab.eval-server/main}
+
+  :test
+  {:target :node-test
+   :output-to "out/test.js"
+   :autorun true}}}

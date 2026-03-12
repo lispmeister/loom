@@ -1,0 +1,13 @@
+node_modules/
+out/
+.shadow-cljs/
+.cpcache/
+.nrepl-port
+target/
+*.js.map
+.env
+.calva/
+.claude/
+.clj-kondo/
+.lsp/
+package-lock.json
