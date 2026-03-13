@@ -1,0 +1,128 @@
+<svg width="100%" viewBox="0 0 680 540" xmlns="http://www.w3.org/2000/svg">
+<style>
+  :root {
+    --bg: #ffffff; --bg2: #f5f5f0; --p: #1a1a1a; --s: #6b6b65; --t: #9c9a92; --b: rgba(0,0,0,0.15);
+    --font-sans: system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1a1a18; --bg2: #2c2c2a; --p: #e8e6dc; --s: #9c9a92; --t: #6b6b65; --b: rgba(255,255,255,0.15); }
+  }
+  text { font-family: var(--font-sans); }
+  .t  { font-size: 14px; fill: var(--p); font-weight: 400; }
+  .ts { font-size: 12px; fill: var(--s); font-weight: 400; }
+  .th { font-size: 14px; fill: var(--p); font-weight: 500; }
+
+  /* Purple ramp */
+  .c-purple > rect, .c-purple > circle, .c-purple > ellipse { fill: #EEEDFE; stroke: #534AB7; }
+  .c-purple > .th, .c-purple .th { fill: #3C3489; }
+  .c-purple > .ts, .c-purple .ts { fill: #534AB7; }
+  .c-purple > .t,  .c-purple .t  { fill: #3C3489; }
+  @media (prefers-color-scheme: dark) {
+    .c-purple > rect, .c-purple > circle, .c-purple > ellipse { fill: #3C3489; stroke: #AFA9EC; }
+    .c-purple > .th, .c-purple .th { fill: #CECBF6; }
+    .c-purple > .ts, .c-purple .ts { fill: #AFA9EC; }
+    .c-purple > .t,  .c-purple .t  { fill: #CECBF6; }
+  }
+
+  /* Teal ramp */
+  .c-teal > rect, .c-teal > circle, .c-teal > ellipse { fill: #E1F5EE; stroke: #0F6E56; }
+  .c-teal > .th, .c-teal .th { fill: #085041; }
+  .c-teal > .ts, .c-teal .ts { fill: #0F6E56; }
+  .c-teal > .t,  .c-teal .t  { fill: #085041; }
+  @media (prefers-color-scheme: dark) {
+    .c-teal > rect, .c-teal > circle, .c-teal > ellipse { fill: #085041; stroke: #5DCAA5; }
+    .c-teal > .th, .c-teal .th { fill: #9FE1CB; }
+    .c-teal > .ts, .c-teal .ts { fill: #5DCAA5; }
+    .c-teal > .t,  .c-teal .t  { fill: #9FE1CB; }
+  }
+
+  /* Coral ramp */
+  .c-coral > rect, .c-coral > circle, .c-coral > ellipse { fill: #FAECE7; stroke: #993C1D; }
+  .c-coral > .th, .c-coral .th { fill: #712B13; }
+  .c-coral > .ts, .c-coral .ts { fill: #993C1D; }
+  .c-coral > .t,  .c-coral .t  { fill: #712B13; }
+  @media (prefers-color-scheme: dark) {
+    .c-coral > rect, .c-coral > circle, .c-coral > ellipse { fill: #712B13; stroke: #F0997B; }
+    .c-coral > .th, .c-coral .th { fill: #F5C4B3; }
+    .c-coral > .ts, .c-coral .ts { fill: #F0997B; }
+    .c-coral > .t,  .c-coral .t  { fill: #F5C4B3; }
+  }
+
+  /* Gray ramp */
+  .c-gray > rect, .c-gray > circle, .c-gray > ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
+  .c-gray > .th, .c-gray .th { fill: #444441; }
+  .c-gray > .ts, .c-gray .ts { fill: #5F5E5A; }
+  @media (prefers-color-scheme: dark) {
+    .c-gray > rect, .c-gray > circle, .c-gray > ellipse { fill: #444441; stroke: #B4B2A9; }
+    .c-gray > .th, .c-gray .th { fill: #D3D1C7; }
+    .c-gray > .ts, .c-gray .ts { fill: #B4B2A9; }
+  }
+
+  .arr { stroke: var(--t); stroke-width: 1.5; }
+  .leader { stroke: var(--t); stroke-width: 0.5; stroke-dasharray: 4 3; }
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<rect x="20" y="20" width="640" height="500" rx="20" fill="none" stroke="var(--t)" stroke-width="1" stroke-dasharray="6 4" opacity="0.4"/>
+<text class="th" x="340" y="48" text-anchor="middle">Host (macOS 26, Apple Silicon)</text>
+
+<g class="c-purple">
+  <rect x="50" y="70" width="580" height="110" rx="12" stroke-width="0.5"/>
+  <text class="th" x="340" y="100" text-anchor="middle">Supervisor</text>
+  <text class="ts" x="340" y="118" text-anchor="middle">Container lifecycle · version history</text>
+  <text class="ts" x="340" y="136" text-anchor="middle">HTTP dashboard :8400</text>
+</g>
+
+<g class="c-teal">
+  <rect x="50" y="230" width="270" height="270" rx="12" stroke-width="0.5"/>
+  <text class="th" x="185" y="260" text-anchor="middle">Prime container</text>
+  <text class="ts" x="185" y="280" text-anchor="middle">The live, known-good agent</text>
+</g>
+
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="300" width="230" height="36" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="185" y="322" text-anchor="middle" dominant-baseline="central">Agent loop + Claude API</text>
+</g>
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="344" width="230" height="36" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="185" y="366" text-anchor="middle" dominant-baseline="central">5 tools: read, write, edit, bash, self-modify</text>
+</g>
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="388" width="230" height="36" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="185" y="410" text-anchor="middle" dominant-baseline="central">Eval client → Lab</text>
+</g>
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="432" width="230" height="36" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="185" y="454" text-anchor="middle" dominant-baseline="central">Dashboard + chat :8401</text>
+</g>
+
+<g class="c-coral">
+  <rect x="370" y="230" width="250" height="270" rx="12" stroke-width="0.5"/>
+  <text class="th" x="495" y="260" text-anchor="middle">Lab container</text>
+  <text class="ts" x="495" y="280" text-anchor="middle">Ephemeral, disposable VM</text>
+</g>
+
+<g class="c-coral" opacity="0.6">
+  <rect x="390" y="300" width="210" height="36" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="495" y="322" text-anchor="middle" dominant-baseline="central">Modified agent source</text>
+</g>
+<g class="c-coral" opacity="0.6">
+  <rect x="390" y="344" width="210" height="36" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="495" y="366" text-anchor="middle" dominant-baseline="central">Form eval server (TCP/EDN)</text>
+</g>
+
+<text class="ts" x="340" y="400" text-anchor="middle" fill="#1D9E75">Eval probes</text>
+<line x1="300" y1="410" x2="368" y2="410" stroke="#1D9E75" stroke-width="1" marker-end="url(#arrow)"/>
+
+<text class="ts" x="160" y="206" text-anchor="middle" fill="#534AB7">Proposals / verdicts</text>
+<line x1="185" y1="215" x2="185" y2="228" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+<line x1="185" y1="180" x2="185" y2="196" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+
+<text class="ts" x="495" y="206" text-anchor="middle" fill="#534AB7">Lifecycle mgmt</text>
+<line x1="495" y1="180" x2="495" y2="228" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+
+<g class="c-gray">
+  <rect x="155" y="475" width="310" height="30" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="310" y="494" text-anchor="middle" dominant-baseline="central">Malli schemas (fixed contracts, never modified)</text>
+</g>
+</svg>

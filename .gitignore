@@ -10,4 +10,4 @@ target/
 .claude/
 .clj-kondo/
 .lsp/
-package-lock.json
+
