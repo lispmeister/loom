@@ -38,7 +38,9 @@
     (async done
            (skip-unless-container-available
             (fn [done]
-              (-> (c/network-create test-network)
+              ;; Delete first to make test idempotent
+              (-> (c/network-delete test-network)
+                  (.then (fn [_] (c/network-create test-network)))
                   (.then (fn [result]
                            (is (:ok result) (str "network-create failed: " (:message result)))
                            (done)))
@@ -85,60 +87,42 @@
 
 (def ^:private lab-container-name "loom-lab-test-eval")
 
-(defn- wait-for-port
-  "Poll host:port until a TCP connection succeeds. Returns a promise.
-   Retries every 200ms, up to max-ms."
-  [host port max-ms]
-  (let [net (js/require "node:net")
-        start (.now js/Date)]
-    (js/Promise.
-     (fn [resolve reject]
-       (letfn [(attempt []
-                 (let [s (.createConnection net #js {:host host :port port})]
-                   (.on s "connect" (fn [] (.destroy s) (resolve true)))
-                   (.on s "error"
-                        (fn [_]
-                          (.destroy s)
-                          (if (> (- (.now js/Date) start) max-ms)
-                            (reject (js/Error. (str "Port " port " not ready after " max-ms "ms")))
-                            (js/setTimeout attempt 200))))))]
-         (attempt))))))
+(defn- delay-ms
+  "Return a promise that resolves after ms milliseconds."
+  [ms]
+  (js/Promise. (fn [resolve _] (js/setTimeout #(resolve nil) ms))))
 
 (deftest lab-image-boot-and-eval
   (testing "loom-lab container boots eval server and evaluates (+ 1 2) (skips if CLI unavailable)"
     (async done
            (skip-unless-container-available
             (fn [done]
-              ;; Clean up any leftover test container, then run fresh
-              (-> (c/destroy lab-container-name)
-                  (.then
-                   (fn [_]
-                     (c/run lab-container-name "loom-lab:latest" nil
-                            :publish "8402:8402" :detach true)))
-                  (.then
-                   (fn [result]
-                     (if (:error result)
-                       (do (is false (str "container run failed: " (:message result)))
-                           (done))
-                       ;; Wait for eval server TCP port
-                       (-> (wait-for-port "127.0.0.1" 8402 10000)
-                           (.then (fn [_]
-                                    (eval-client/eval-form "127.0.0.1" 8402 "(+ 1 2)")))
-                           (.then (fn [response]
-                                    (is (= :ok (:status response)))
-                                    (is (= 3 (:value response)))))
-                           (.then (fn [_] (c/stop lab-container-name)))
-                           (.then (fn [_] (c/destroy lab-container-name)))
-                           (.then (fn [_] (done)))
-                           (.catch (fn [err]
-                                     (-> (c/stop lab-container-name)
-                                         (.then (fn [_] (c/destroy lab-container-name)))
-                                         (.then (fn [_]
-                                                  (is false (str "Unexpected: " err))
-                                                  (done)))
-                                         (.catch (fn [_]
-                                                   (is false (str "Unexpected: " err))
-                                                   (done))))))))))))
+              (let [cname (str "loom-lab-test-" (rand-int 100000))
+                    host-port (+ 19000 (rand-int 1000))
+                    publish-spec (str host-port ":8402")]
+                (-> (c/run cname "loom-lab:latest" nil
+                           :publish publish-spec :detach true)
+                    (.then
+                     (fn [result]
+                       (if (:error result)
+                         (do (is false (str "container run failed: " (:message result)))
+                             (js/Promise.resolve nil))
+                         (-> (delay-ms 3000)
+                             (.then (fn [_]
+                                      (eval-client/eval-form "127.0.0.1" host-port "(+ 1 2)")))
+                             (.then (fn [response]
+                                      (is (= :ok (:status response)))
+                                      (is (= 3 (:value response)))))))))
+                    (.then (fn [_] (c/stop cname)))
+                    (.then (fn [_] (c/destroy cname)))
+                    (.then (fn [_] (done)))
+                    (.catch (fn [err]
+                              (-> (c/stop cname)
+                                  (.then (fn [_] (c/destroy cname)))
+                                  (.catch (fn [_] nil))
+                                  (.then (fn [_]
+                                           (is false (str "Unexpected: " err))
+                                           (done)))))))))
             done))))
 
 ;; Cleanup: remove test network after tests

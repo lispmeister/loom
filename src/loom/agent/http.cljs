@@ -82,24 +82,32 @@
      ;; would hook into the response "close" event.
      )))
 
-(defn- handle-chat [state-atom req]
+(defn- handle-chat [state-atom on-chat-fn req]
   (let [body    (http/read-json-body req)
         message (.-message ^js body)]
-    (emit-log "chat" {:message message})
-    (http/json-response 200 {:status "received" :message message})))
+    (if on-chat-fn
+      ;; Async: run through the agent loop
+      (-> (on-chat-fn message)
+          (.then (fn [response-text]
+                   (http/json-response 200 {:status "completed"
+                                            :response response-text}))))
+      ;; No handler — just acknowledge
+      (http/json-response 200 {:status "received" :message message}))))
 
 ;; -- Public API --
 
 (defn create-prime-routes
   "Create the route map for the Prime HTTP server.
-   state-atom holds {:status :messages-count :tool-calls-count :start-time :version ...}"
-  [state-atom]
+   state-atom holds {:status :messages-count :tool-calls-count :start-time :version ...}
+   on-chat-fn is an optional (fn [message] -> promise-of-string) for the agent loop."
+  [state-atom & {:keys [on-chat-fn]}]
   {[:get "/"]      (partial handle-dashboard state-atom)
    [:get "/stats"] (partial handle-stats state-atom)
    [:get "/logs"]  handle-logs
-   [:post "/chat"] (partial handle-chat state-atom)})
+   [:post "/chat"] (partial handle-chat state-atom on-chat-fn)})
 
 (defn start-prime-server
   "Start the Prime HTTP server. Returns promise of server."
-  [state-atom & {:keys [port] :or {port 8401}}]
-  (http/create-server (create-prime-routes state-atom) :port port))
+  [state-atom & {:keys [port on-chat-fn] :or {port 8401}}]
+  (http/create-server (create-prime-routes state-atom :on-chat-fn on-chat-fn)
+                      :port port))

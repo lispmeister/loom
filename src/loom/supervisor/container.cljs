@@ -106,6 +106,21 @@
                    (assoc result :container-id (str/trim (:output result "")))
                    result))))))
 
+(defn published-port
+  "Get the host port for a published container port.
+   Apple Containerization may remap the requested host port, so this reads
+   the actual mapping from inspect. Returns a promise of the port number or nil."
+  [container-name container-port]
+  (-> (inspect container-name)
+      (.then (fn [result]
+               (when (:ok result)
+                 (let [config (first (:data result))
+                       ports (get-in config [:configuration :publishedPorts])]
+                   (some (fn [p]
+                           (when (= container-port (:containerPort p))
+                             (:hostPort p)))
+                         ports)))))))
+
 (defn network-create
   "Create a virtual network. Returns promise."
   [network-name]

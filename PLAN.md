@@ -183,7 +183,7 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 4c. Agentic loop
 
-- [ ] 4c — User message → Claude → tool dispatch → feed results back → repeat. Context management, conversation history, system prompt. `(depends on 4a + 4b)` **(Track D)**
+- [x] 4c — Agentic loop in `loom.agent.loop`: user message → Claude → tool dispatch → feed results back → repeat. Max 25 iterations, on-event callbacks for SSE streaming, API error handling. Wired to Prime HTTP `/chat` endpoint. **(Track D)**
 
 ### 4d. Prime HTTP server
 
