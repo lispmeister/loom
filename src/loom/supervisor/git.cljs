@@ -57,3 +57,26 @@
   "Checkout an existing branch. Returns promise."
   [cwd branch-name]
   (git cwd ["checkout" branch-name]))
+
+(defn clone-repo
+  "Clone a repo to dest. Returns promise."
+  [source dest]
+  (js/Promise.
+   (fn [resolve _reject]
+     (let [cb (fn [err stdout stderr]
+                (if err
+                  (resolve {:error true
+                            :message (str (str/trim (str stderr)) " " (str/trim (str stdout)))
+                            :exit-code (or (.-code err) 1)})
+                  (resolve {:ok true
+                            :output (str/trim (str stdout))})))]
+       (.execFile child-process "git" (clj->js ["clone" source dest]) cb)))))
+
+(defn commit
+  "Stage all and commit with message. Returns promise."
+  [cwd message]
+  (-> (git cwd ["add" "-A"])
+      (.then (fn [result]
+               (if (:error result)
+                 result
+                 (git cwd ["commit" "-m" message]))))))

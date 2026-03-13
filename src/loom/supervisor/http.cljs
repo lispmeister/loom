@@ -3,7 +3,9 @@
   (:require [clojure.string :as str]
             [loom.shared.http :as http]
             [loom.supervisor.git :as git]
-            [loom.supervisor.generations :as gen]))
+            [loom.supervisor.generations :as gen]
+            [loom.supervisor.lab :as lab]
+            [loom.supervisor.container :as container]))
 
 (def ^:private crypto (js/require "node:crypto"))
 
@@ -116,26 +118,45 @@
         repo-path  (:repo-path config)
         gen-num    (gen/next-generation-number gens-path)
         branch     (str "lab/gen-" gen-num)
-        now        (.toISOString (js/Date.))]
-    (-> (git/create-branch repo-path branch)
+        now        (.toISOString (js/Date.))
+        hash       (sha256-short program-md)
+        network    (:network config)]
+    (emit-log "spawn" {:generation gen-num :branch branch :status "starting"})
+    (-> (lab/spawn-lab repo-path gen-num program-md
+                       :network network
+                       :image (or (:lab-image config) "loom-lab:latest"))
         (.then (fn [result]
                  (if (:error result)
-                   (http/json-response 500 {:error (:message result)})
-                   (let [hash   (sha256-short program-md)
-                         record {:generation      gen-num
-                                 :parent          parent-gen
-                                 :branch          branch
-                                 :program-md-hash hash
-                                 :outcome         :in-progress
-                                 :created         now
-                                 :container-id    "" ;; TODO: Phase 3a — assign container ID when container lifecycle is implemented
-                                 }]
-                     (gen/append-generation gens-path record)
-                     (emit-log "spawn" {:generation gen-num :branch branch})
-                     ;; TODO: Phase 3a — create Lab container here
-                     (http/json-response 200 {:generation gen-num
-                                              :branch     branch
-                                              :status     "spawned"}))))))))
+                   (do
+                     (gen/append-generation gens-path
+                                            {:generation      gen-num
+                                             :parent          parent-gen
+                                             :branch          branch
+                                             :program-md-hash hash
+                                             :outcome         :failed
+                                             :created         now
+                                             :completed       (.toISOString (js/Date.))
+                                             :container-id    ""})
+                     (emit-log "spawn" {:generation gen-num :status "failed"
+                                        :error (:message result)})
+                     (http/json-response 500 {:error (:message result)}))
+                   (do
+                     (gen/append-generation gens-path
+                                            {:generation      gen-num
+                                             :parent          parent-gen
+                                             :branch          branch
+                                             :program-md-hash hash
+                                             :outcome         :in-progress
+                                             :created         now
+                                             :container-id    (or (:container-id result) "")})
+                     (emit-log "spawn" {:generation gen-num :status "spawned"
+                                        :container (:container-name result)
+                                        :port (:host-port result)})
+                     (http/json-response 200 {:generation      gen-num
+                                              :branch          branch
+                                              :container-name  (:container-name result)
+                                              :host-port       (:host-port result)
+                                              :status          "spawned"}))))))))
 
 (defn- handle-promote [_state-atom config req]
   (let [body      (js->clj (http/read-json-body req) :keywordize-keys true)

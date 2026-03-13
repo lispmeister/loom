@@ -94,7 +94,7 @@
                                   0
                                   (or (.-code err) 1))
                       timed-out? (and (some? err)
-                                      (true? (.-killed err)))
+                                      (true? (.-killed ^js err)))
                       lines (cond-> []
                               (seq stdout) (conj (str "stdout:\n" stdout))
                               (seq stderr) (conj (str "stderr:\n" stderr))

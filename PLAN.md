@@ -141,23 +141,23 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 3a. Container lifecycle
 
-- [ ] 3a.1 — `container` CLI wrapper: pure functions that shell out to `create`, `start`, `stop`, `destroy`, parse output, return structured results `(parallel)` **(Track A)**
-- [ ] 3a.2 — Network setup: create `loom-net` on Supervisor startup, attach containers via `--network loom-net` `(parallel)` **(Track A)**
-- [ ] 3a.3 — Repo cloning + branch setup: clone repo into container working dir, checkout `lab/gen-N` branch, place `program.md` `(depends on 3a.1)` **(Track A)**
+- [x] 3a.1 — `container` CLI wrapper: pure functions that shell out to `create`, `start`, `stop`, `destroy`, parse output, return structured results `(parallel)` **(Track A)**
+- [x] 3a.2 — Network setup: `network-ensure("loom-net")` called on Supervisor startup in `supervisor/core.cljs`, containers attached via `--network loom-net` in `lab/spawn-lab` `(parallel)` **(Track A)**
+- [x] 3a.3 — Repo cloning + branch setup: `git/clone-repo` + `git/commit` in `supervisor/git.cljs`, `lab/setup-lab-repo` (clone → config → branch → program.md → commit), `lab/spawn-lab` (full lifecycle with container + volume mount). 4 tests in `lab_setup_test.cljs`. **(Track A)**
 
 ### 3b. Version management
 
-- [ ] 3b.1 — Git operations: create branch, merge, tag, delete branch — pure functions wrapping `git` CLI `(parallel)` **(Track B)**
-- [ ] 3b.2 — `generations.edn`: read/write/append generation records, Malli validation for the lineage schema `(parallel)` **(Track B)**
+- [x] 3b.1 — Git operations: create branch, merge, tag, delete branch, clone-repo, commit — pure functions wrapping `git` CLI in `supervisor/git.cljs` `(parallel)` **(Track B)**
+- [x] 3b.2 — `generations.edn`: read/write/append generation records in `supervisor/generations.cljs` `(parallel)` **(Track B)**
 
 ### 3c. HTTP server + dashboard
 
-- [ ] 3c.1 — HTTP server skeleton: routing, JSON responses, SSE event stream infrastructure `(parallel)` **(Track E)**
-- [ ] 3c.2 — Dashboard HTML: single page showing container status, generation history, logs `(depends on 3c.1)` **(Track E)**
+- [x] 3c.1 — HTTP server skeleton: routing, JSON responses, SSE in `shared/http.cljs` `(parallel)` **(Track E)**
+- [x] 3c.2 — Dashboard HTML: single page in `supervisor/http.cljs` showing status, generation history, links `(depends on 3c.1)` **(Track E)**
 
 ### 3d. Lab orchestration endpoints
 
-- [ ] 3d — `POST /spawn` (create Lab from `program.md`), `POST /promote` (merge + tag + restart Prime), `POST /rollback` (discard Lab branch) `(depends on 3a + 3b)` **(Track E)**
+- [x] 3d — `POST /spawn` (calls `lab/spawn-lab`), `POST /promote` (merge + tag + delete branch), `POST /rollback` (discard Lab branch). All wired in `supervisor/http.cljs` with SSE logging. 8 tests in `supervisor_http_test.cljs`. **(Track E)**
 
 ### 3e. Timeout enforcement
 
