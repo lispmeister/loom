@@ -16,7 +16,8 @@
   :lab
   {:target :node-script
    :output-to "out/lab.js"
-   :main loom.lab.eval-server/main}
+   :main loom.lab.eval-server/main
+   :compiler-options {:optimizations :simple}}
 
   :test
   {:target :node-test

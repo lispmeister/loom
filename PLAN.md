@@ -94,13 +94,28 @@ Three problems to solve:
 
 ---
 
+## Parallel Tracks
+
+Tasks from different phases that share no dependencies can be developed in parallel across five tracks. They converge at Phase 5.
+
+```
+Track A: Container infra     1b → 3a.1 + 3a.2 → 3a.3 → 3e
+Track B: Git + lineage        3b.1 + 3b.2
+Track C: Eval protocol        2a + 2b → 2c
+Track D: Agent core           4a.1 → 4a.2 + 4b.1–4b.4 → 4c
+Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
+                                         ↘ all converge → Phase 5 → Phase 6
+```
+
+---
+
 ## Phase 1: Foundation
 
 **Goal:** Self-hosted ClojureScript running in an Apple container.
 
 - [x] 1.0 Create `shadow-cljs.edn` and `deps.edn` for the project
 - [x] 1a. Verify `cljs.js/eval-str` works — write a test that compiles and evaluates a form at runtime using self-hosted ClojureScript on Node.js (9 tests, 17 assertions passing)
-- [ ] 1b. Container image — build a minimal OCI image (Node + ClojureScript source), boot with `container run`, verify eval-str works inside, measure boot time (target: <5s)
+- [x] 1b. Container image — `loom-lab:latest` OCI image (node:22-slim + release lab.js + cljs.core analysis cache). Boot time: ~730ms to TCP ready, ~1.8s to first eval. Verified eval-str works inside container. **(Track A)**
 
 **Dependencies:** 1b blocked on 1a passing.
 
@@ -110,9 +125,9 @@ Three problems to solve:
 
 **Goal:** A Lab container that accepts and evaluates ClojureScript forms over TCP.
 
-- [ ] 2a. Eval server — implement `loom.lab.eval-server`: TCP socket, EDN in/out, `cljs.js/eval-str` (~50 lines) `(parallel)`
-- [ ] 2b. Eval client — implement `loom.shared.eval-client`: connect to server, send form, receive result `(parallel)`
-- [ ] 2c. Eval round-trip test — integration test: start server, connect client, eval `(+ 1 2)` → `{:status :ok :value 3}`, test error/timeout paths
+- [ ] 2a. Eval server — implement `loom.lab.eval-server`: TCP socket, EDN in/out, `cljs.js/eval-str` (~50 lines) `(parallel)` **(Track C)**
+- [ ] 2b. Eval client — implement `loom.shared.eval-client`: connect to server, send form, receive result `(parallel)` **(Track C)**
+- [ ] 2c. Eval round-trip test — integration test: start server, connect client, eval `(+ 1 2)` → `{:status :ok :value 3}`, test error/timeout paths **(Track C)**
 
 **Dependencies:** 2a and 2b are parallel. 2c depends on both. Schemas (`EvalRequest`, `EvalResponse`) already defined in `loom.shared.schemas`.
 
@@ -124,13 +139,29 @@ Three problems to solve:
 
 **Goal:** A host process that creates, starts, stops, and destroys containers on `loom-net`.
 
-- [ ] 3a. Container lifecycle — shell out to `container` CLI (create, start, stop, destroy), attach to `loom-net`, inject env vars, clone full repo into container `(parallel)`
-- [ ] 3b. Version management — git branching (`lab/gen-N`), tagging (`gen-N`), merge on promote, maintain `generations.edn` `(parallel)`
-- [ ] 3c. HTTP server + dashboard — `GET /`, `/logs` (SSE), `/stats`, `/versions`, single HTML page `(parallel)`
-- [ ] 3d. Lab orchestration endpoints — `POST /spawn` (create Lab from `program.md`), `POST /promote` (merge + tag + restart Prime), `POST /rollback` (discard Lab branch)
-- [ ] 3e. Hard timeout enforcement — kill Lab container after 5 minutes
+### 3a. Container lifecycle
 
-**Dependencies:** 3a, 3b, 3c are parallel. 3d depends on 3a + 3b. 3e depends on 3a.
+- [ ] 3a.1 — `container` CLI wrapper: pure functions that shell out to `create`, `start`, `stop`, `destroy`, parse output, return structured results `(parallel)` **(Track A)**
+- [ ] 3a.2 — Network setup: create `loom-net` on Supervisor startup, attach containers via `--network loom-net` `(parallel)` **(Track A)**
+- [ ] 3a.3 — Repo cloning + branch setup: clone repo into container working dir, checkout `lab/gen-N` branch, place `program.md` `(depends on 3a.1)` **(Track A)**
+
+### 3b. Version management
+
+- [ ] 3b.1 — Git operations: create branch, merge, tag, delete branch — pure functions wrapping `git` CLI `(parallel)` **(Track B)**
+- [ ] 3b.2 — `generations.edn`: read/write/append generation records, Malli validation for the lineage schema `(parallel)` **(Track B)**
+
+### 3c. HTTP server + dashboard
+
+- [ ] 3c.1 — HTTP server skeleton: routing, JSON responses, SSE event stream infrastructure `(parallel)` **(Track E)**
+- [ ] 3c.2 — Dashboard HTML: single page showing container status, generation history, logs `(depends on 3c.1)` **(Track E)**
+
+### 3d. Lab orchestration endpoints
+
+- [ ] 3d — `POST /spawn` (create Lab from `program.md`), `POST /promote` (merge + tag + restart Prime), `POST /rollback` (discard Lab branch) `(depends on 3a + 3b)` **(Track E)**
+
+### 3e. Timeout enforcement
+
+- [ ] 3e — Kill Lab container after 5 minutes, record timeout in `generations.edn` `(depends on 3a.1)` **(Track A)**
 
 **Falsifiable:** If Apple Containerization is too unstable (>30% failure rate on create/start), fall back to UTM via `utmctl`.
 
@@ -138,12 +169,25 @@ Three problems to solve:
 
 **Goal:** A working coding agent in the Prime container that talks to Claude.
 
-- [ ] 4a. Claude API client — direct HTTP to `api.anthropic.com/v1/messages`, non-streaming, tool_use parsing `(parallel)`
-- [ ] 4b. Tool implementations — `read-file`, `write-file`, `edit-file`, `bash` (4 of 5; `self-modify` is Phase 5) `(parallel)`
-- [ ] 4c. Agentic loop — user message → Claude → tool dispatch → feed back → repeat (context management, conversation history)
-- [ ] 4d. Prime HTTP server — `GET /`, `/logs`, `/stats`, `POST /chat` `(parallel with 4a/4b)`
+### 4a. Claude API client
 
-**Dependencies:** 4a, 4b, 4d are parallel. 4c depends on 4a + 4b.
+- [ ] 4a.1 — HTTP client: POST to `api.anthropic.com/v1/messages`, parse JSON response, handle errors/retries `(parallel)` **(Track D)**
+- [ ] 4a.2 — Tool-use parsing: extract tool calls from Claude's response, map tool names to dispatch functions `(depends on 4a.1)` **(Track D)**
+
+### 4b. Tool implementations
+
+- [ ] 4b.1 — `read-file`: read file contents, return with path `(parallel)` **(Track D)**
+- [ ] 4b.2 — `write-file`: write content to file, create or overwrite `(parallel)` **(Track D)**
+- [ ] 4b.3 — `edit-file`: find-and-replace string in file `(parallel)` **(Track D)**
+- [ ] 4b.4 — `bash`: execute shell command, capture stdout/stderr, enforce timeout `(parallel)` **(Track D)**
+
+### 4c. Agentic loop
+
+- [ ] 4c — User message → Claude → tool dispatch → feed results back → repeat. Context management, conversation history, system prompt. `(depends on 4a + 4b)` **(Track D)**
+
+### 4d. Prime HTTP server
+
+- [ ] 4d — `GET /`, `/logs` (SSE), `/stats`, `POST /chat`. Reuse HTTP skeleton from 3c.1. `(parallel with 4a/4b)` **(Track E)**
 
 **Falsifiable:** If Claude can't reliably generate valid ClojureScript tool calls with a <1000 token prompt, expand the prompt incrementally.
 
@@ -151,13 +195,22 @@ Three problems to solve:
 
 **Goal:** Prime spawns a Lab with `program.md`, observes results, promotes or reverts.
 
-- [ ] 5a. `self-modify` tool — collaborate with user to produce `program.md`, POST to Supervisor `/spawn`, poll Lab `/status`
+**Converges all tracks.** Depends on Phase 3 (all) + Phase 4 (all).
+
+### 5a. Self-modify tool
+
+- [ ] 5a.1 — `program.md` generation: Prime drafts from user conversation, presents revisions, user approves `(parallel)`
+- [ ] 5a.2 — Spawn request: construct payload, POST to Supervisor `/spawn` `(parallel with 5a.1)`
+- [ ] 5a.3 — Status polling: connect-retry loop against Lab `/status`, handle readiness, done, and timeout `(parallel with 5a.1)`
+
+### 5b–5e. Evaluation and promotion
+
 - [ ] 5b. Acceptance evaluation — pull Lab branch, run tests independently, send eval probes, compare benchmarks (trust but verify)
 - [ ] 5c. Version promotion — POST `/promote` to Supervisor (merge, tag, serialize state, restart Prime)
 - [ ] 5d. Retry on failure — on Lab failure/timeout, retry with same `program.md` (v0); auto-refine `program.md` based on failure analysis (post-v0)
 - [ ] 5e. Logging — every spawn, status poll, evaluation, and verdict logged and visible in dashboard
 
-**Dependencies:** Depends on all of Phase 3 + Phase 4. 5b/5c/5d/5e can be developed alongside 5a.
+**Dependencies:** 5b/5c/5d/5e can be developed alongside 5a.
 
 **Falsifiable:** If the agent can't complete one successful self-modification cycle end-to-end, debug each stage independently.
 
