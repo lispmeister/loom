@@ -13,3 +13,7 @@ target/
 
 README-gpg.md
 generations.edn
+
+# Dolt database files (added by bd init)
+.dolt/
+*.db
