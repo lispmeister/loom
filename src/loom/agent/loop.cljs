@@ -14,8 +14,9 @@ Workflow for self-modification:
 1. Draft a program.md with the task spec and acceptance criteria
 2. Use spawn_lab with the program.md to create a Lab container
 3. Use check_lab_status to poll the Lab until it reports done or fails
-4. If done, review the Lab's work (read files on the lab branch, run tests via bash)
-5. Use promote_generation to merge successful changes, or rollback_generation to discard
+4. If done, use verify_generation to independently run tests on the Lab's branch
+5. If tests pass, use promote_generation to merge. If tests fail, use rollback_generation to discard.
+6. On failure or timeout, retry: call spawn_lab again with the same program.md (up to 2 retries)
 
 Work step by step. Read files before editing them. Run tests to verify your changes.")
 

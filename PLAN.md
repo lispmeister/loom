@@ -205,9 +205,9 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 5b–5e. Evaluation and promotion
 
-- [ ] 5b. Acceptance evaluation — pull Lab branch, run tests independently, send eval probes, compare benchmarks (trust but verify). Prime can use `bash` tool to run tests on Lab's branch.
+- [x] 5b. Acceptance evaluation — `verify_generation` tool in `self-modify.cljs`: checks out Lab branch, compiles and runs tests, reports pass/fail, returns to master. Prime calls this after Lab reports done, before promoting.
 - [x] 5c. Version promotion — `promote_generation` tool POSTs to Supervisor `/promote` (merge, tag, delete branch). State serialization deferred.
-- [ ] 5d. Retry on failure — on Lab failure/timeout, retry with same `program.md` (v0); auto-refine `program.md` based on failure analysis (post-v0)
+- [x] 5d. Retry on failure — system prompt guides Prime to retry `spawn_lab` with same `program.md` on failure/timeout (up to 2 retries). Auto-refine deferred to post-v0.
 - [x] 5e. Logging — spawn/timeout/promote/rollback events emitted via SSE. Agent on-event callbacks stream to `/logs`.
 
 ### 5f. Lab worker (autonomous agent in container)
@@ -249,7 +249,7 @@ The Lab container currently only runs the eval server. For self-modification, La
 
 Items to address before or shortly after a clean Phase 6 run.
 
-- [ ] **Rate-limit-aware retry** — In `claude.cljs`, on 429 response parse `retry-after` header, wait that duration, then retry the request instead of aborting the loop. Max 3 retries.
+- [x] **Rate-limit-aware retry** — In `claude.cljs`, on 429 response parse `retry-after` header, wait that duration, then retry (max 3 retries). Committed.
 - [ ] **Keep program.md focused** — Document guidelines for writing effective program.md: single focused task, explicit file paths, concrete acceptance criteria, avoid open-ended exploration.
 - [ ] **Request API rate limit increase** — Once usage patterns stabilize, request higher limits from Anthropic for the project API key.
 - [ ] **Batch API for non-interactive work** — Evaluate Anthropic Batch API (50% cost reduction, higher limits, 24h turnaround) for Lab tasks that don't need real-time interaction.

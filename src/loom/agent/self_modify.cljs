@@ -1,6 +1,7 @@
 (ns loom.agent.self-modify
   "Self-modification tools for Prime: spawn Labs, poll status, promote/rollback."
-  (:require [loom.shared.http-client :as client]))
+  (:require [clojure.string :as str]
+            [loom.shared.http-client :as client]))
 
 (def ^:dynamic supervisor-url
   (or (some-> js/process .-env .-LOOM_SUPERVISOR_URL)
@@ -77,6 +78,59 @@
                  (str "Generation " generation " rolled back.\n"
                       "Status: " (:status result)))))))
 
+(defn verify-generation
+  "Independently verify a Lab generation's work: checkout its branch,
+   run tests, report results, return to master.
+   Input: {:generation N :repo_path \"/path/to/repo\"}"
+  [{:keys [generation repo_path]}]
+  (let [branch (str "lab/gen-" generation)
+        repo   (or repo_path ".")
+        cp     (js/require "node:child_process")]
+    (-> (js/Promise.
+         (fn [resolve _]
+           (.execFile cp "git" #js ["checkout" branch] #js {:cwd repo}
+                      (fn [err _stdout stderr]
+                        (if err
+                          (resolve {:error true :step "checkout"
+                                    :message (str "Failed to checkout " branch ": " stderr)})
+                          (resolve {:ok true}))))))
+        (.then (fn [result]
+                 (if (:error result)
+                   result
+                   (js/Promise.
+                    (fn [resolve _]
+                      (.exec cp "npm test 2>&1 && node out/test.js 2>&1"
+                             #js {:cwd repo :timeout 120000 :maxBuffer (* 10 1024 1024)}
+                             (fn [err stdout _stderr]
+                               (resolve {:ok     (nil? err)
+                                         :step   "tests"
+                                         :output (str stdout)
+                                         :exit   (if err (or (.-code err) 1) 0)}))))))))
+        (.then (fn [test-result]
+                 ;; Always return to master, regardless of test outcome
+                 (-> (js/Promise.
+                      (fn [resolve _]
+                        (.execFile cp "git" #js ["checkout" "master"] #js {:cwd repo}
+                                   (fn [_err _stdout _stderr]
+                                     (resolve test-result))))))))
+        (.then (fn [result]
+                 (if (:error result)
+                   (str "Verification failed at " (:step result) ": " (:message result))
+                   (let [passed? (:ok result)
+                         output  (:output result)
+                         ;; Extract summary line (last few lines with test counts)
+                         lines   (.split output "\n")
+                         summary (->> lines
+                                      (filter #(re-find #"Ran \d+ tests|failures|errors" %))
+                                      (str/join "\n"))]
+                     (str "Verification of gen-" generation ":\n"
+                          "Result: " (if passed? "PASS" "FAIL") "\n"
+                          "Exit code: " (:exit result) "\n"
+                          (when (seq summary) (str "Summary:\n" summary "\n"))
+                          (when-not passed?
+                            (str "\nFull output (last 50 lines):\n"
+                                 (->> lines (take-last 50) (str/join "\n"))))))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Tool definitions and registry (for merging into agent tools)
 ;; ---------------------------------------------------------------------------
@@ -104,10 +158,17 @@
     :description "Rollback a failed Lab generation: discard its branch and mark as failed."
     :input_schema {:type "object"
                    :properties {:generation {:type "integer" :description "Generation number to rollback"}}
+                   :required ["generation"]}}
+   {:name "verify_generation"
+    :description "Independently verify a Lab generation's work: checkout its branch, compile and run all tests, report pass/fail, return to master. Use this after a Lab reports done, before promoting."
+    :input_schema {:type "object"
+                   :properties {:generation {:type "integer" :description "Generation number to verify"}
+                                :repo_path {:type "string" :description "Path to the repo (default: current dir)"}}
                    :required ["generation"]}}])
 
 (def registry
   {"spawn_lab"           spawn-lab
    "check_lab_status"    check-lab-status
    "promote_generation"  promote-generation
-   "rollback_generation" rollback-generation})
+   "rollback_generation" rollback-generation
+   "verify_generation"   verify-generation})
