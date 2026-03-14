@@ -5,14 +5,15 @@
             ["node:fs" :as fs]
             ["node:path" :as node-path]
             ["node:child_process" :as cp]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [loom.agent.self-modify :as self-modify]))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool definitions for the Claude API
 ;; ---------------------------------------------------------------------------
 
-(def tool-definitions
-  "Tool definitions for the Claude API tools parameter."
+(def base-tool-definitions
+  "Core tool definitions for file operations and shell commands."
   [{:name "read_file"
     :description "Read a file's contents"
     :input_schema {:type "object"
@@ -106,9 +107,17 @@
 ;; Tool registry
 ;; ---------------------------------------------------------------------------
 
-(def registry
-  "Map from tool name (string, underscore-cased) to implementation function."
+(def base-registry
+  "Map from tool name to implementation for core tools."
   {"read_file"  read-file
    "write_file" write-file
    "edit_file"  edit-file
    "bash"       bash})
+
+(def tool-definitions
+  "All tool definitions: core + self-modify."
+  (into base-tool-definitions self-modify/tool-definitions))
+
+(def registry
+  "All tools: core + self-modify."
+  (merge base-registry self-modify/registry))

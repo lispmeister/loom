@@ -26,11 +26,13 @@
                  (if (:error result)
                    result
                    (do
-                     ;; Set git user for lab commits
+                     ;; Set git user for lab commits, disable GPG signing
                      (.execFileSync child-process "git"
                                     #js ["-C" lab-dir "config" "user.email" "lab@loom.local"])
                      (.execFileSync child-process "git"
                                     #js ["-C" lab-dir "config" "user.name" "Loom Lab"])
+                     (.execFileSync child-process "git"
+                                    #js ["-C" lab-dir "config" "commit.gpgsign" "false"])
                      (git/create-branch lab-dir branch-name)))))
         (.then (fn [result]
                  (if (:error result)
@@ -49,46 +51,6 @@
         (.catch (fn [err]
                   {:error true :message (str "Lab setup failed: " (.-message err))})))))
 
-(defn spawn-lab
-  "Full Lab spawn: clone repo, set up branch, write program.md, run container.
-   Returns a promise resolving to:
-     {:ok true :container-name <string> :lab-dir <path> :branch <string> :host-port <int>}
-   or {:error true :message <string>}."
-  [source-repo-path gen-num program-md
-   & {:keys [image network env-vars container-port]
-      :or {image "loom-lab:latest"
-           container-port 8402}}]
-  (let [branch         (str "lab/gen-" gen-num)
-        container-name (str "lab-gen-" gen-num)]
-    (-> (setup-lab-repo source-repo-path branch program-md)
-        (.then (fn [result]
-                 (if (:error result)
-                   result
-                   (let [lab-dir (:lab-dir result)
-                         publish-spec (str container-port ":" container-port)]
-                     (-> (container/run
-                          container-name image nil
-                          :network network
-                          :env-vars (merge {:CACHE_PATH "/app/cljs-core-cache.transit.json"}
-                                           env-vars)
-                          :volumes [[lab-dir "/workspace"]]
-                          :publish publish-spec
-                          :detach true)
-                         (.then (fn [run-result]
-                                  (if (:error run-result)
-                                    run-result
-                                    ;; Get the actual host port
-                                    (-> (container/published-port container-name container-port)
-                                        (.then (fn [host-port]
-                                                 {:ok true
-                                                  :container-name container-name
-                                                  :container-id (:container-id run-result)
-                                                  :lab-dir lab-dir
-                                                  :branch branch
-                                                  :host-port host-port})))))))))))
-        (.catch (fn [err]
-                  {:error true :message (str "Spawn failed: " (.-message err))})))))
-
 (defn cleanup-lab
   "Stop and remove a Lab container. Best-effort, never rejects."
   [container-name]
@@ -96,3 +58,83 @@
       (.catch (fn [_] nil))
       (.then (fn [_] (container/destroy container-name)))
       (.catch (fn [_] nil))))
+
+(defn cancel-timeout
+  "Cancel a scheduled Lab timeout by ID. Returns nil."
+  [timeout-id]
+  (js/clearTimeout timeout-id)
+  nil)
+
+(defn- copy-worker-js
+  "Copy the compiled lab-worker.js into the lab workspace.
+   worker-path: path to compiled out/lab-worker.js on the host."
+  [worker-path lab-dir]
+  (try
+    (.copyFileSync fs worker-path (.join path-mod lab-dir "lab-worker.js"))
+    {:ok true}
+    (catch :default e
+      {:error true :message (str "Failed to copy lab-worker.js: " (.-message e))})))
+
+(defn spawn-lab
+  "Full Lab spawn: clone repo, set up branch, write program.md, run container.
+   Returns a promise resolving to:
+     {:ok true :container-name <string> :lab-dir <path> :branch <string>
+      :host-port <int> :timeout-id <int>}
+   or {:error true :message <string>}.
+
+   Options:
+     :worker-path — path to compiled lab-worker.js (default: out/lab-worker.js)
+     :on-timeout  — callback (fn [gen-num container-name]) called on 5-min timeout"
+  [source-repo-path gen-num program-md
+   & {:keys [image network env-vars container-port on-timeout worker-path]
+      :or {image "loom-lab:latest"
+           container-port 8402
+           on-timeout (fn [_gen-num _container-name])
+           worker-path "out/lab-worker.js"}}]
+  (let [branch         (str "lab/gen-" gen-num)
+        container-name (str "lab-gen-" gen-num)
+        ;; Inject ANTHROPIC_API_KEY from Supervisor's env into Lab
+        api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
+        lab-env        (cond-> {:PORT (str container-port)}
+                         api-key (assoc :ANTHROPIC_API_KEY api-key))]
+    (-> (setup-lab-repo source-repo-path branch program-md)
+        (.then (fn [result]
+                 (if (:error result)
+                   result
+                   (let [lab-dir (:lab-dir result)
+                         copy-result (copy-worker-js worker-path lab-dir)]
+                     (if (:error copy-result)
+                       copy-result
+                       (let [publish-spec (str container-port ":" container-port)]
+                         (-> (container/run
+                              container-name image
+                              ["node" "/workspace/lab-worker.js"]
+                              ;; Dual-attach: default for internet, custom for container DNS
+                              :networks (if network
+                                          ["default" network]
+                                          ["default"])
+                              :env-vars (merge lab-env env-vars)
+                              :volumes [[lab-dir "/workspace"]]
+                              :publish publish-spec
+                              :detach true)
+                             (.then (fn [run-result]
+                                      (if (:error run-result)
+                                        run-result
+                                        ;; Get the actual host port
+                                        (-> (container/published-port container-name container-port)
+                                            (.then (fn [host-port]
+                                                     ;; Start 5-minute timeout
+                                                     (let [timeout-id (js/setTimeout
+                                                                       (fn []
+                                                                         (on-timeout gen-num container-name)
+                                                                         (cleanup-lab container-name))
+                                                                       300000)]
+                                                       {:ok true
+                                                        :container-name container-name
+                                                        :container-id (:container-id run-result)
+                                                        :lab-dir lab-dir
+                                                        :branch branch
+                                                        :host-port host-port
+                                                        :timeout-id timeout-id}))))))))))))))
+        (.catch (fn [err]
+                  {:error true :message (str "Spawn failed: " (.-message err))})))))

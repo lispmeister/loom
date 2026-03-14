@@ -12,3 +12,4 @@ target/
 .lsp/
 
 README-gpg.md
+generations.edn

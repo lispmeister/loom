@@ -125,9 +125,9 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 **Goal:** A Lab container that accepts and evaluates ClojureScript forms over TCP.
 
-- [ ] 2a. Eval server — implement `loom.lab.eval-server`: TCP socket, EDN in/out, `cljs.js/eval-str` (~50 lines) `(parallel)` **(Track C)**
-- [ ] 2b. Eval client — implement `loom.shared.eval-client`: connect to server, send form, receive result `(parallel)` **(Track C)**
-- [ ] 2c. Eval round-trip test — integration test: start server, connect client, eval `(+ 1 2)` → `{:status :ok :value 3}`, test error/timeout paths **(Track C)**
+- [x] 2a. Eval server — implemented in `loom.lab.eval-server`: TCP socket, EDN in/out, `cljs.js/eval-str` (~50 lines) `(parallel)` **(Track C)**
+- [x] 2b. Eval client — implemented in `loom.shared.eval-client`: connect to server, send form, receive result `(parallel)` **(Track C)**
+- [x] 2c. Eval round-trip test — `eval_server_test.cljs`: arithmetic, invalid form, malformed EDN, data structures **(Track C)**
 
 **Dependencies:** 2a and 2b are parallel. 2c depends on both. Schemas (`EvalRequest`, `EvalResponse`) already defined in `loom.shared.schemas`.
 
@@ -161,7 +161,7 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 3e. Timeout enforcement
 
-- [ ] 3e — Kill Lab container after 5 minutes, record timeout in `generations.edn` `(depends on 3a.1)` **(Track A)**
+- [x] 3e — 5-min timeout via `js/setTimeout` in `lab/spawn-lab`, callback updates `generations.edn` to `:timeout` and calls `cleanup-lab`. Supervisor tracks timeout-ids in `lab-timeouts` atom, cancels on promote/rollback. **(Track A)**
 
 **Falsifiable:** If Apple Containerization is too unstable (>30% failure rate on create/start), fall back to UTM via `utmctl`.
 
@@ -171,15 +171,15 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 4a. Claude API client
 
-- [ ] 4a.1 — HTTP client: POST to `api.anthropic.com/v1/messages`, parse JSON response, handle errors/retries `(parallel)` **(Track D)**
-- [ ] 4a.2 — Tool-use parsing: extract tool calls from Claude's response, map tool names to dispatch functions `(depends on 4a.1)` **(Track D)**
+- [x] 4a.1 — HTTP client in `loom.agent.claude`: POST to Messages API, parse JSON, handle errors. Tested in `claude_test.cljs`. `(parallel)` **(Track D)**
+- [x] 4a.2 — Tool-use parsing in `loom.agent.dispatch`: extract tool calls, dispatch to registry. Tested in `tools_test.cljs`. `(depends on 4a.1)` **(Track D)**
 
 ### 4b. Tool implementations
 
-- [ ] 4b.1 — `read-file`: read file contents, return with path `(parallel)` **(Track D)**
-- [ ] 4b.2 — `write-file`: write content to file, create or overwrite `(parallel)` **(Track D)**
-- [ ] 4b.3 — `edit-file`: find-and-replace string in file `(parallel)` **(Track D)**
-- [ ] 4b.4 — `bash`: execute shell command, capture stdout/stderr, enforce timeout `(parallel)` **(Track D)**
+- [x] 4b.1 — `read-file` in `loom.agent.tools`, tested `(parallel)` **(Track D)**
+- [x] 4b.2 — `write-file` in `loom.agent.tools`, tested `(parallel)` **(Track D)**
+- [x] 4b.3 — `edit-file` in `loom.agent.tools`, tested `(parallel)` **(Track D)**
+- [x] 4b.4 — `bash` in `loom.agent.tools`, 30s timeout, 10MB maxBuffer, tested `(parallel)` **(Track D)**
 
 ### 4c. Agentic loop
 
@@ -187,7 +187,7 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 4d. Prime HTTP server
 
-- [ ] 4d — `GET /`, `/logs` (SSE), `/stats`, `POST /chat`. Reuse HTTP skeleton from 3c.1. `(parallel with 4a/4b)` **(Track E)**
+- [x] 4d — `GET /`, `/logs` (SSE), `/stats`, `POST /chat` in `loom.agent.http`. Tested in `agent_http_test.cljs`. `(parallel with 4a/4b)` **(Track E)**
 
 **Falsifiable:** If Claude can't reliably generate valid ClojureScript tool calls with a <1000 token prompt, expand the prompt incrementally.
 
@@ -199,16 +199,29 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 ### 5a. Self-modify tool
 
-- [ ] 5a.1 — `program.md` generation: Prime drafts from user conversation, presents revisions, user approves `(parallel)`
-- [ ] 5a.2 — Spawn request: construct payload, POST to Supervisor `/spawn` `(parallel with 5a.1)`
-- [ ] 5a.3 — Status polling: connect-retry loop against Lab `/status`, handle readiness, done, and timeout `(parallel with 5a.1)`
+- [x] 5a.1 — `program.md` generation: handled by Claude in conversation, Prime's system prompt includes self-modification workflow guidance `(parallel)`
+- [x] 5a.2 — Spawn request: `spawn_lab` tool in `loom.agent.self-modify`, POSTs to Supervisor `/spawn` via `shared/http-client` `(parallel with 5a.1)`
+- [x] 5a.3 — Status polling: `check_lab_status` tool with connect-retry (5 attempts, 2s apart) against Lab `/status` `(parallel with 5a.1)`
 
 ### 5b–5e. Evaluation and promotion
 
-- [ ] 5b. Acceptance evaluation — pull Lab branch, run tests independently, send eval probes, compare benchmarks (trust but verify)
-- [ ] 5c. Version promotion — POST `/promote` to Supervisor (merge, tag, serialize state, restart Prime)
+- [ ] 5b. Acceptance evaluation — pull Lab branch, run tests independently, send eval probes, compare benchmarks (trust but verify). Prime can use `bash` tool to run tests on Lab's branch.
+- [x] 5c. Version promotion — `promote_generation` tool POSTs to Supervisor `/promote` (merge, tag, delete branch). State serialization deferred.
 - [ ] 5d. Retry on failure — on Lab failure/timeout, retry with same `program.md` (v0); auto-refine `program.md` based on failure analysis (post-v0)
-- [ ] 5e. Logging — every spawn, status poll, evaluation, and verdict logged and visible in dashboard
+- [x] 5e. Logging — spawn/timeout/promote/rollback events emitted via SSE. Agent on-event callbacks stream to `/logs`.
+
+### 5f. Lab worker (autonomous agent in container)
+
+The Lab container currently only runs the eval server. For self-modification, Labs need to be autonomous agents that read `program.md` and execute the task end-to-end.
+
+- [x] 5f.1 — Lab worker entry point: `src/loom/lab/worker.cljs`. On boot: read `/workspace/program.md`, create agent, run the agentic loop, expose `GET /status`, commit results on completion.
+- [x] 5f.2 — Shadow-cljs build target: `:lab-worker` in `shadow-cljs.edn`, compiles to `out/lab-worker.js` (default optimizations — no self-hosted eval needed).
+- [x] 5f.3 — Spawn integration: `lab/spawn-lab` copies `out/lab-worker.js` into workspace, passes `["node" "/workspace/lab-worker.js"]` as container command, injects `ANTHROPIC_API_KEY` + `PORT` from Supervisor env.
+- [x] 5f.4 — Status endpoint: `GET /status` returns `{:status "starting"|"running"|"done"|"failed", :progress <string>, :error <string>}`.
+
+**Dependencies:** 5f depends on Phase 4 (agent loop, tools, Claude client). 5f.1 and 5f.2 are parallel. 5f.3 depends on 5f.1 + 5f.2.
+
+**Falsifiable:** If the Lab worker can't complete a simple file edit task inside a container within 5 minutes, debug boot time and API connectivity independently.
 
 **Dependencies:** 5b/5c/5d/5e can be developed alongside 5a.
 
@@ -220,6 +233,7 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 
 - [ ] User and Prime collaborate on a `program.md` requesting an improvement (e.g., "add line numbers to read-file tool")
 - [ ] Prime spawns a Lab with the task via Supervisor
+- [ ] Lab boots, reads `program.md`, starts autonomous agent loop
 - [ ] Lab implements the change, commits to `lab/gen-1`
 - [ ] Lab reports done via `/status`
 - [ ] Prime independently verifies acceptance criteria
@@ -228,6 +242,18 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 - [ ] The improvement is visible and functional
 
 **This is the proof of concept.** Everything before this is scaffolding. Everything after is iteration.
+
+---
+
+## Immediate Backlog
+
+Items to address before or shortly after a clean Phase 6 run.
+
+- [ ] **Rate-limit-aware retry** — In `claude.cljs`, on 429 response parse `retry-after` header, wait that duration, then retry the request instead of aborting the loop. Max 3 retries.
+- [ ] **Keep program.md focused** — Document guidelines for writing effective program.md: single focused task, explicit file paths, concrete acceptance criteria, avoid open-ended exploration.
+- [ ] **Request API rate limit increase** — Once usage patterns stabilize, request higher limits from Anthropic for the project API key.
+- [ ] **Batch API for non-interactive work** — Evaluate Anthropic Batch API (50% cost reduction, higher limits, 24h turnaround) for Lab tasks that don't need real-time interaction.
+- [ ] **GPG-sign commits from Lab containers** — Figure out how to forward or provision GPG signing inside Lab containers so that Lab commits are signed. Currently disabled via `commit.gpgsign false` in lab repo config.
 
 ---
 
@@ -265,12 +291,24 @@ Track E: HTTP layer            3c.1 → 3c.2 + 3d + 4d
 - **Prime↔Lab protocol** → boot = start, `/status` for monitoring, Prime verifies independently (option C)
 - **Acceptance evaluation** → trust but verify: Lab self-tests AND Prime checks independently
 
+### Resolved (2026-03-14)
+
+- **Container outbound networking** → Apple Containerization provides outbound internet via vmnet by default. Tailscale VPN breaks vmnet routing — must be disconnected before running Labs. After disconnecting, restart with `container system stop && container system start`.
+- **Lab worker** → Labs run `out/lab-worker.js` (release build, self-contained). Worker reads `program.md`, runs agent loop, exposes `GET /status`, commits results. Git user set to `lab@loom.local` with GPG signing disabled.
+- **API key for Labs** → Supervisor injects `ANTHROPIC_API_KEY` from its own env into Lab containers.
+
 ### Deferred (non-blocking for v0)
 
 1. **EvalResponse size** — `:value :any` has no size/depth guard. Add limits when eval server is in use. (Revisit Phase 2)
 2. **Proposal schema versioning** — no version marker on fixed-point schemas. (Revisit after Phase 6)
 3. **Lab concurrency cost** — how expensive is an Apple Containerization VM? Determines feasibility of parallel Labs. (Explore after v0)
 4. **State schema migration** — v0 uses EDN + version tag with fresh-start fallback. Proper migration needed once state format stabilizes. (Revisit after Phase 6)
+5. **API rate limits** — New Anthropic API accounts have low rate limits (30k input tokens/min for Sonnet). The Lab agent hit this mid-task during Phase 6 testing. Strategy to mitigate:
+   - **Use Haiku for Lab tasks** — much cheaper, higher rate limits, sufficient for straightforward code edits. Set `LOOM_MODEL=claude-haiku-4-5-20251001` for Labs.
+   - **Keep program.md focused** — smaller tasks = fewer loop iterations = fewer API calls. Avoid open-ended exploration in v0.
+   - **Rate-limit-aware retry** — on 429, parse `retry-after` header, wait, then continue the loop instead of aborting. (Implement in `claude.cljs`.)
+   - **Request rate limit increase** — once usage patterns stabilize, request higher limits from Anthropic.
+   - **Batch tier** — for non-interactive Lab work, consider Anthropic's Batch API (50% cost reduction, higher limits, 24h turnaround). Not suitable for interactive loops but good for bulk tasks.
 
 ## Not in v0
 

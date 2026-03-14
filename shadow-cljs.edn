@@ -19,6 +19,12 @@
    :main loom.lab.eval-server/main
    :compiler-options {:optimizations :simple}}
 
+  :lab-worker
+  {:target :node-script
+   :output-to "out/lab-worker.js"
+   :main loom.lab.worker/main
+   :compiler-options {:optimizations :simple}}
+
   :test
   {:target :node-test
    :output-to "out/test.js"

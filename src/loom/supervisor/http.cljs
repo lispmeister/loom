@@ -19,6 +19,18 @@
   (doseq [send-fn @sse-clients]
     (http/send-sse-event send-fn event-name data)))
 
+;; -- Lab timeout tracking --
+
+;; Map of generation-number to timeout-id for active Lab containers.
+(defonce lab-timeouts (atom {}))
+
+(defn- cancel-lab-timeout
+  "Cancel the timeout for a generation, if one exists. Removes it from the atom."
+  [gen-num]
+  (when-let [timeout-id (get @lab-timeouts gen-num)]
+    (lab/cancel-timeout timeout-id)
+    (swap! lab-timeouts dissoc gen-num)))
+
 ;; -- Dashboard HTML --
 
 (defn- dashboard-html [config]
@@ -120,11 +132,20 @@
         branch     (str "lab/gen-" gen-num)
         now        (.toISOString (js/Date.))
         hash       (sha256-short program-md)
-        network    (:network config)]
+        network    (:network config)
+        on-timeout (fn [timed-out-gen _container-name]
+                     (let [completed (.toISOString (js/Date.))]
+                       (gen/update-generation gens-path timed-out-gen
+                                              {:outcome :timeout :completed completed})
+                       (swap! lab-timeouts dissoc timed-out-gen)
+                       (emit-log "timeout" {:generation timed-out-gen
+                                            :status "timeout"
+                                            :message "Lab killed after 5 minute timeout"})))]
     (emit-log "spawn" {:generation gen-num :branch branch :status "starting"})
     (-> (lab/spawn-lab repo-path gen-num program-md
                        :network network
-                       :image (or (:lab-image config) "loom-lab:latest"))
+                       :image (or (:lab-image config) "loom-lab:latest")
+                       :on-timeout on-timeout)
         (.then (fn [result]
                  (if (:error result)
                    (do
@@ -141,6 +162,8 @@
                                         :error (:message result)})
                      (http/json-response 500 {:error (:message result)}))
                    (do
+                     ;; Track the timeout so promote/rollback can cancel it
+                     (swap! lab-timeouts assoc gen-num (:timeout-id result))
                      (gen/append-generation gens-path
                                             {:generation      gen-num
                                              :parent          parent-gen
@@ -164,6 +187,8 @@
         gens-path (:generations-path config)
         repo-path (:repo-path config)
         record    (find-generation config gen-num)]
+    ;; Cancel timeout before processing promotion
+    (cancel-lab-timeout gen-num)
     (if (nil? record)
       (js/Promise.resolve
        (http/json-response 404 {:error (str "Generation " gen-num " not found")}))
@@ -198,6 +223,8 @@
         gens-path (:generations-path config)
         repo-path (:repo-path config)
         record    (find-generation config gen-num)]
+    ;; Cancel timeout before processing rollback
+    (cancel-lab-timeout gen-num)
     (if (nil? record)
       (js/Promise.resolve
        (http/json-response 404 {:error (str "Generation " gen-num " not found")}))

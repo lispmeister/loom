@@ -87,9 +87,14 @@
   "Create and run a container in one step.
    Combines create + start. If detach is true, returns immediately.
    Returns promise resolving to {:ok true :container-id '...'} or output if not detached."
-  [name image command & {:keys [network env-vars volumes publish detach] :or {detach true}}]
-  (let [args (cond-> ["run" "--name" name]
-               network (into ["--network" network])
+  [name image command & {:keys [network networks env-vars volumes publish detach] :or {detach true}}]
+  (let [;; Support both :network "foo" and :networks ["foo" "bar"]
+        all-networks (cond
+                       networks networks
+                       network [network]
+                       :else nil)
+        args (cond-> ["run" "--name" name]
+               all-networks (into (mapcat (fn [n] ["--network" n]) all-networks))
                env-vars (into (mapcat (fn [[k v]] ["--env" (str (clojure.core/name k) "=" v)])
                                       env-vars))
                volumes (into (mapcat (fn [[host-path container-path]]

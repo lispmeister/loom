@@ -1,5 +1,7 @@
 FROM node:22-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Analysis cache for self-hosted ClojureScript eval

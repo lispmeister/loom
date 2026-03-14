@@ -1,10 +1,16 @@
 (ns loom.agent.claude
   "Minimal HTTP client for the Anthropic Messages API.
-   Non-streaming, tool_use aware."
+   Non-streaming, tool_use aware.
+   Supports ANTHROPIC_API_BASE env var for custom API endpoints."
   (:require ["node:https" :as https]
+            ["node:http" :as http]
             [clojure.string :as str]))
 
-(def ^:private api-url "https://api.anthropic.com/v1/messages")
+(def ^:private api-base
+  (or (some-> js/process .-env .-ANTHROPIC_API_BASE)
+      "https://api.anthropic.com"))
+
+(def ^:private api-url (str api-base "/v1/messages"))
 
 (defn- build-request-body
   "Construct the JSON request body map for the Messages API."
@@ -15,18 +21,22 @@
     system (assoc :system system)
     (seq tools) (assoc :tools tools)))
 
-(defn- https-post
-  "Make an HTTPS POST request. Returns a promise resolving to
+(defn- http-post
+  "Make an HTTP/HTTPS POST request (auto-selects based on URL scheme).
+   Returns a promise resolving to
    {:status N :body \"raw-string\"} or {:error true :message \"...\"}."
   [url headers body-str]
   (js/Promise.
    (fn [resolve _reject]
      (let [parsed-url (js/URL. url)
+           use-https? (= "https:" (.-protocol parsed-url))
+           client (if use-https? https http)
            options #js {:hostname (.-hostname parsed-url)
-                        :path (.-pathname parsed-url)
+                        :port (.-port parsed-url)
+                        :path (str (.-pathname parsed-url) (.-search parsed-url))
                         :method "POST"
                         :headers (clj->js headers)}
-           req (.request https options
+           req (.request client options
                          (fn [^js res]
                            (let [chunks #js []]
                              (.on res "data" (fn [chunk] (.push chunks chunk)))
@@ -59,7 +69,7 @@
                                   :tools tools
                                   :max-tokens max-tokens})
         body-str (js/JSON.stringify (clj->js body))]
-    (-> (https-post api-url headers body-str)
+    (-> (http-post api-url headers body-str)
         (.then (fn [result]
                  (if (:error result)
                    ;; Network error — pass through
