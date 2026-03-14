@@ -44,6 +44,7 @@
                                   (fn []
                                     (let [body (.join chunks "")]
                                       (resolve {:status (.-statusCode res)
+                                                :headers {:retry-after (aget (.-headers res) "retry-after")}
                                                 :body body})))))))]
        (.on req "error"
             (fn [err]
@@ -51,34 +52,69 @@
        (.write req body-str)
        (.end req)))))
 
+(def ^:private max-retries
+  "Maximum number of retries on 429 rate-limit responses."
+  3)
+
+(def ^:private default-retry-delay-ms
+  "Fallback delay when retry-after header is missing (ms)."
+  10000)
+
+(defn parse-retry-after
+  "Parse retry-after header value to milliseconds.
+   Handles integer seconds. Returns default-retry-delay-ms on failure."
+  [value]
+  (if (some? value)
+    (let [seconds (js/parseFloat value)]
+      (if (js/isNaN seconds)
+        default-retry-delay-ms
+        (* (js/Math.ceil seconds) 1000)))
+    default-retry-delay-ms))
+
+(defn- delay-ms
+  "Returns a promise that resolves after ms milliseconds."
+  [ms]
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve ms))))
+
 (defn send-message
   "Send a message to the Claude API. Returns a promise resolving to the
    parsed response body (as ClojureScript data).
 
+   Retries up to 3 times on 429 (rate limit) responses, respecting the
+   retry-after header.
+
    On HTTP error, resolves to {:error true :status N :body \"...\"}.
    On network error, resolves to {:error true :message \"...\"}."
-  [{:keys [api-key model messages system tools max-tokens]
+  [{:keys [api-key model messages system tools max-tokens on-event]
     :or {model "claude-sonnet-4-20250514"
          max-tokens 4096}}]
-  (let [headers {"x-api-key" api-key
-                 "anthropic-version" "2023-06-01"
-                 "content-type" "application/json"}
+  (let [req-headers {"x-api-key" api-key
+                     "anthropic-version" "2023-06-01"
+                     "content-type" "application/json"}
         body (build-request-body {:model model
                                   :messages messages
                                   :system system
                                   :tools tools
                                   :max-tokens max-tokens})
         body-str (js/JSON.stringify (clj->js body))]
-    (-> (http-post api-url headers body-str)
-        (.then (fn [result]
-                 (if (:error result)
-                   ;; Network error — pass through
-                   result
-                   ;; Got an HTTP response
-                   (let [{:keys [status body]} result]
-                     (if (<= 200 status 299)
-                       (js->clj (js/JSON.parse body) :keywordize-keys true)
-                       {:error true :status status :body body}))))))))
+    (letfn [(attempt [retries-left]
+              (-> (http-post api-url req-headers body-str)
+                  (.then (fn [result]
+                           (if (:error result)
+                             result
+                             (let [{:keys [status body headers]} result]
+                               (if (<= 200 status 299)
+                                 (js->clj (js/JSON.parse body) :keywordize-keys true)
+                                 (if (and (= 429 status) (pos? retries-left))
+                                   (let [wait-ms (parse-retry-after (:retry-after headers))]
+                                     (when on-event
+                                       (on-event {:type :rate-limit
+                                                  :retry-after-ms wait-ms
+                                                  :retries-left retries-left}))
+                                     (-> (delay-ms wait-ms)
+                                         (.then #(attempt (dec retries-left)))))
+                                   {:error true :status status :body body}))))))))]
+      (attempt max-retries))))
 
 ;; ---------------------------------------------------------------------------
 ;; Response parsing helpers

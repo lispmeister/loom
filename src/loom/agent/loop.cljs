@@ -53,20 +53,21 @@ Work step by step. Read files before editing them. Run tests to verify your chan
 
 (defn- call-claude
   "Send current conversation to Claude. Returns a promise of the response."
-  [agent]
+  [agent on-event]
   (claude/send-message
    {:api-key    (:api-key agent)
     :model      (:model agent)
     :messages   (:messages agent)
     :system     (:system agent)
     :tools      tools/tool-definitions
-    :max-tokens (:max-tokens agent)}))
+    :max-tokens (:max-tokens agent)
+    :on-event   on-event}))
 
 (defn- tool-use-loop
   "Inner loop: send to Claude, dispatch tools, repeat until end_turn or max iterations.
    Returns a promise resolving to {:agent <updated> :response <final-response>}."
   [agent on-event iteration]
-  (-> (call-claude agent)
+  (-> (call-claude agent on-event)
       (.then
        (fn [response]
          (if (:error response)

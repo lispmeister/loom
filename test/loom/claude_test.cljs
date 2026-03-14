@@ -122,3 +122,25 @@
     (is (true? (:error mock-error-response)))
     (is (= 401 (:status mock-error-response)))
     (is (string? (:body mock-error-response)))))
+
+;; ---------------------------------------------------------------------------
+;; parse-retry-after tests
+;; ---------------------------------------------------------------------------
+
+(deftest parse-retry-after-integer-seconds
+  (testing "parses integer seconds to milliseconds"
+    (is (= 30000 (claude/parse-retry-after "30")))
+    (is (= 1000 (claude/parse-retry-after "1")))))
+
+(deftest parse-retry-after-fractional-seconds
+  (testing "parses fractional seconds, ceiling to next second"
+    (is (= 2000 (claude/parse-retry-after "1.5")))
+    (is (= 1000 (claude/parse-retry-after "0.3")))))
+
+(deftest parse-retry-after-nil-returns-default
+  (testing "returns default delay when header is nil"
+    (is (= 10000 (claude/parse-retry-after nil)))))
+
+(deftest parse-retry-after-invalid-returns-default
+  (testing "returns default delay when header is unparseable"
+    (is (= 10000 (claude/parse-retry-after "not-a-number")))))
