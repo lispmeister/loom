@@ -42,12 +42,19 @@
                  (if (:error result)
                    result
                    (do
+                     ;; Write .gitignore to prevent runtime artifacts from being committed
+                     (let [gitignore-path (.join path-mod lab-dir ".gitignore")
+                           existing (if (.existsSync fs gitignore-path)
+                                      (str (.readFileSync fs gitignore-path "utf8") "\n")
+                                      "")
+                           entries "# Loom Lab runtime artifacts\nlab-worker.js\nprogram.md\n"]
+                       (.writeFileSync fs gitignore-path (str existing entries) "utf8"))
                      ;; Write program.md into the lab repo
                      (.writeFileSync fs
                                      (.join path-mod lab-dir "program.md")
                                      program-md "utf8")
                      ;; Commit so the lab starts from a clean state
-                     (git/commit lab-dir (str "Add program.md for " branch-name))))))
+                     (git/commit lab-dir (str "Add .gitignore and program.md for " branch-name))))))
         (.then (fn [result]
                  (if (:error result)
                    result
@@ -95,50 +102,56 @@
            container-port 8402
            on-timeout (fn [_gen-num _container-name])
            worker-path "out/lab-worker.js"}}]
-  (let [branch         (str "lab/gen-" gen-num)
-        container-name (str "lab-gen-" gen-num)
-        ;; Inject ANTHROPIC_API_KEY from Supervisor's env into Lab
-        api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
-        lab-env        (cond-> {:PORT (str container-port)}
-                         api-key (assoc :ANTHROPIC_API_KEY api-key))]
-    (-> (setup-lab-repo source-repo-path branch program-md :base-dir lab-base-dir)
-        (.then (fn [result]
-                 (if (:error result)
-                   result
-                   (let [lab-dir (:lab-dir result)
-                         copy-result (copy-worker-js worker-path lab-dir)]
-                     (if (:error copy-result)
-                       copy-result
-                       (let [publish-spec (str container-port ":" container-port)]
-                         (-> (container/run
-                              container-name image
-                              ["node" "/workspace/lab-worker.js"]
+  ;; Validate build artifact exists before spawning
+  (if-not (.existsSync fs worker-path)
+    (js/Promise.resolve
+     {:error true
+      :message (str "Build artifact missing: " worker-path
+                    ". Run 'npm run lab' or 'npx shadow-cljs compile lab-worker' first.")})
+    (let [branch         (str "lab/gen-" gen-num)
+          container-name (str "lab-gen-" gen-num)
+          ;; Inject ANTHROPIC_API_KEY from Supervisor's env into Lab
+          api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
+          lab-env        (cond-> {:PORT (str container-port)}
+                           api-key (assoc :ANTHROPIC_API_KEY api-key))]
+      (-> (setup-lab-repo source-repo-path branch program-md :base-dir lab-base-dir)
+          (.then (fn [result]
+                   (if (:error result)
+                     result
+                     (let [lab-dir (:lab-dir result)
+                           copy-result (copy-worker-js worker-path lab-dir)]
+                       (if (:error copy-result)
+                         copy-result
+                         (let [publish-spec (str "0:" container-port)]
+                           (-> (container/run
+                                container-name image
+                                ["node" "/workspace/lab-worker.js"]
                               ;; Dual-attach: default for internet, custom for container DNS
-                              :networks (if network
-                                          ["default" network]
-                                          ["default"])
-                              :env-vars (merge lab-env env-vars)
-                              :volumes [[lab-dir "/workspace"]]
-                              :publish publish-spec
-                              :detach true)
-                             (.then (fn [run-result]
-                                      (if (:error run-result)
-                                        run-result
+                                :networks (if network
+                                            ["default" network]
+                                            ["default"])
+                                :env-vars (merge lab-env env-vars)
+                                :volumes [[lab-dir "/workspace"]]
+                                :publish publish-spec
+                                :detach true)
+                               (.then (fn [run-result]
+                                        (if (:error run-result)
+                                          run-result
                                         ;; Get the actual host port
-                                        (-> (container/published-port container-name container-port)
-                                            (.then (fn [host-port]
+                                          (-> (container/published-port container-name container-port)
+                                              (.then (fn [host-port]
                                                      ;; Start 5-minute timeout
-                                                     (let [timeout-id (js/setTimeout
-                                                                       (fn []
-                                                                         (on-timeout gen-num container-name)
-                                                                         (cleanup-lab container-name))
-                                                                       300000)]
-                                                       {:ok true
-                                                        :container-name container-name
-                                                        :container-id (:container-id run-result)
-                                                        :lab-dir lab-dir
-                                                        :branch branch
-                                                        :host-port host-port
-                                                        :timeout-id timeout-id}))))))))))))))
-        (.catch (fn [err]
-                  {:error true :message (str "Spawn failed: " (.-message err))})))))
+                                                       (let [timeout-id (js/setTimeout
+                                                                         (fn []
+                                                                           (on-timeout gen-num container-name)
+                                                                           (cleanup-lab container-name))
+                                                                         300000)]
+                                                         {:ok true
+                                                          :container-name container-name
+                                                          :container-id (:container-id run-result)
+                                                          :lab-dir lab-dir
+                                                          :branch branch
+                                                          :host-port host-port
+                                                          :timeout-id timeout-id}))))))))))))))
+          (.catch (fn [err]
+                    {:error true :message (str "Spawn failed: " (.-message err))}))))))

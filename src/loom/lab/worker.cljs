@@ -97,7 +97,9 @@
                   :model     model
                   :system    "You are a Loom Lab worker. You have been given a task in program.md.
 Execute the task autonomously using the tools available to you.
-Read files before editing. Run tests to verify changes.
+Read files before editing. Make minimal, focused changes.
+Do NOT run npm test, npx shadow-cljs, or any compilation commands — the container
+does not have the build toolchain. Prime will verify your work host-side.
 Work in /workspace which is a git repo on your lab branch.
 When done, ensure all changes are saved — they will be committed automatically."
                   :max-tokens 4096})]

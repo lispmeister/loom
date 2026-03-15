@@ -1,0 +1,25 @@
+# Task: [Brief title]
+
+## Objective
+
+[One paragraph describing what to change and why.]
+
+## Files to Modify
+
+- `src/loom/path/to/file.cljs` — [what to change]
+- `test/loom/path_test.cljs` — [update tests to match]
+
+## Acceptance Criteria
+
+- [ ] [Concrete, verifiable criterion 1]
+- [ ] [Concrete, verifiable criterion 2]
+- [ ] All modified files are syntactically valid ClojureScript
+
+## Constraints
+
+- **Do NOT run `npm test` or `npx shadow-cljs`** — the container lacks the compilation
+  toolchain. Prime will verify your work host-side after you report done.
+- Work in `/workspace` which is a git repo on your lab branch.
+- Keep changes minimal and focused on the objective above.
+- Read files before editing them. Use the edit_file tool for surgical changes.
+- When done, ensure all changes are saved. They will be committed automatically.

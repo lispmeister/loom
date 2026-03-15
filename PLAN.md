@@ -297,6 +297,13 @@ Items to address before or shortly after a clean Phase 6 run.
 - **Lab worker** → Labs run `out/lab-worker.js` (release build, self-contained). Worker reads `program.md`, runs agent loop, exposes `GET /status`, commits results. Git user set to `lab@loom.local` with GPG signing disabled.
 - **API key for Labs** → Supervisor injects `ANTHROPIC_API_KEY` from its own env into Lab containers.
 
+### Resolved (2026-03-15)
+
+- **Labs cannot self-test** → Shadow-cljs compilation takes ~25s inside the container VM, which combined with the 5-min timeout leaves insufficient time for actual work. Labs must NOT run `npm test` or any compilation commands. Prime's `verify_generation` tool runs tests host-side after the Lab reports done. The Lab worker system prompt and `templates/program.md.example` enforce this constraint.
+- **Lab artifact leak** → `git add -A` in Lab commits `lab-worker.js` and `program.md` to the lab branch, which merge into main. Fixed by writing a `.gitignore` (excluding both files) into the workspace during `setup-lab-repo`, before the Lab starts.
+- **Port collision on spawn** → Fixed host port `"8402:8402"` causes failures on sequential spawns. Changed to `"0:8402"` for dynamic host port assignment; `published-port` reads the actual assigned port.
+- **Lab workspace cleanup** → Promote and rollback handlers now auto-clean old Lab workspace directories, keeping the last 3 for debugging.
+
 ### Deferred (non-blocking for v0)
 
 1. **EvalResponse size** — `:value :any` has no size/depth guard. Add limits when eval server is in use. (Revisit Phase 2)

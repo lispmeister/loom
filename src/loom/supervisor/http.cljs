@@ -125,6 +125,32 @@
 (def ^:private fs-mod (js/require "node:fs"))
 (def ^:private path-mod (js/require "node:path"))
 
+;; -- Lab workspace cleanup --
+
+(defn- cleanup-lab-workspace
+  "Delete a Lab workspace directory. Best-effort, never throws.
+   Keeps the last `keep-count` workspaces (by modification time) for debugging."
+  [config gen-num & {:keys [keep-count] :or {keep-count 3}}]
+  (try
+    (let [lab-base (:lab-base-dir config)]
+      (when (and lab-base (.existsSync fs-mod lab-base))
+        ;; Delete this generation's workspace
+        (let [record-branch (str "lab/gen-" gen-num)
+              entries (->> (.readdirSync fs-mod lab-base)
+                           (js->clj)
+                           (filter #(.startsWith % "lab-"))
+                           (sort-by (fn [name]
+                                      (try
+                                        (.-mtimeMs (.statSync fs-mod (.join path-mod lab-base name)))
+                                        (catch :default _ 0))))
+                           (reverse))
+              to-delete (drop keep-count entries)]
+          (doseq [dir-name to-delete]
+            (let [full-path (.join path-mod lab-base dir-name)]
+              (.rmSync fs-mod full-path #js {:recursive true :force true}))))))
+    (catch :default e
+      (js/console.warn "Lab workspace cleanup failed:" (.-message e)))))
+
 (defn- save-program-md
   "Save program.md to tmp/programs/gen-N.md for reference."
   [config gen-num program-md]
@@ -228,6 +254,7 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :promoted :completed now})
+                         (cleanup-lab-workspace config gen-num)
                          (emit-log "promote" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
                                                   :status     "promoted"}))))))))))
@@ -254,6 +281,7 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :failed :completed now})
+                         (cleanup-lab-workspace config gen-num)
                          (emit-log "rollback" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
                                                   :status     "rolled-back"}))))))))))
