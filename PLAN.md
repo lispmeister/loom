@@ -4,7 +4,7 @@
 
 A self-modifying coding agent that can rewrite its own code, test modifications in isolated Lab containers, and promote successful changes — all in pure ClojureScript on Node.js.
 
-**Status:** MVP complete. First self-modification cycle (gen-1) succeeded 2026-03-15. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`).
+**Status:** MVP complete. First self-modification cycle (gen-1) succeeded 2026-03-15. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
 
 ---
 
