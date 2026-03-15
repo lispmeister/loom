@@ -72,15 +72,10 @@
 (defn- handle-logs [_req]
   (http/sse-handler
    _req
-   (fn [send-fn close-fn]
+   (fn [send-fn _close-fn on-close-fn]
      (swap! sse-clients conj send-fn)
      (http/send-sse-event send-fn "connected" {:msg "SSE stream open"})
-     ;; Remove client on disconnect — the underlying socket emits "close"
-     ;; We don't have direct access to the raw socket here, so we wrap close-fn
-     ;; to also deregister. The HTTP layer will call close when the client disconnects.
-     ;; For now, clients accumulate until server restart. A production version
-     ;; would hook into the response "close" event.
-     )))
+     (on-close-fn (fn [] (swap! sse-clients disj send-fn))))))
 
 (defn- handle-chat [state-atom on-chat-fn req]
   (let [body    (http/read-json-body req)

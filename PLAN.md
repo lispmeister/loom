@@ -231,15 +231,15 @@ The Lab container currently only runs the eval server. For self-modification, La
 
 **Goal:** The agent rewrites one of its own functions, tests it, and promotes it.
 
-- [ ] User and Prime collaborate on a `program.md` requesting an improvement (e.g., "add line numbers to read-file tool")
-- [ ] Prime spawns a Lab with the task via Supervisor
-- [ ] Lab boots, reads `program.md`, starts autonomous agent loop
-- [ ] Lab implements the change, commits to `lab/gen-1`
-- [ ] Lab reports done via `/status`
-- [ ] Prime independently verifies acceptance criteria
-- [ ] Prime promotes: merge, tag `gen-1`, restart
-- [ ] Prime restarts with improved code
-- [ ] The improvement is visible and functional
+- [x] User and Prime collaborate on a `program.md` requesting an improvement (e.g., "add line numbers to read-file tool")
+- [x] Prime spawns a Lab with the task via Supervisor
+- [x] Lab boots, reads `program.md`, starts autonomous agent loop
+- [x] Lab implements the change, commits to `lab/gen-1`
+- [x] Lab reports done via `/status`
+- [x] Prime independently verifies acceptance criteria
+- [x] Prime promotes: merge, tag `gen-1`, restart
+- [ ] Prime restarts with improved code *(deferred: requires state serialization)*
+- [x] The improvement is visible and functional
 
 **This is the proof of concept.** Everything before this is scaffolding. Everything after is iteration.
 
@@ -303,6 +303,8 @@ Items to address before or shortly after a clean Phase 6 run.
 - **Lab artifact leak** → `git add -A` in Lab commits `lab-worker.js` and `program.md` to the lab branch, which merge into main. Fixed by writing a `.gitignore` (excluding both files) into the workspace during `setup-lab-repo`, before the Lab starts.
 - **Port collision on spawn** → Fixed host port `"8402:8402"` causes failures on sequential spawns. Changed to `"0:8402"` for dynamic host port assignment; `published-port` reads the actual assigned port.
 - **Lab workspace cleanup** → Promote and rollback handlers now auto-clean old Lab workspace directories, keeping the last 3 for debugging.
+- **SSE client memory leak** → SSE handlers in both agent and supervisor now deregister clients on disconnect via the response `close` event.
+- **Graceful shutdown** → Supervisor and Prime trap SIGINT/SIGTERM, close the HTTP server, and exit cleanly.
 
 ### Deferred (non-blocking for v0)
 

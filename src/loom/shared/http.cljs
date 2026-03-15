@@ -82,15 +82,18 @@
     (.end res (or body ""))))
 
 (defn- setup-sse
-  "Set up an SSE connection on the raw Node.js response object."
+  "Set up an SSE connection on the raw Node.js response object.
+   setup-fn receives (send-fn close-fn on-close-fn) where on-close-fn
+   registers a callback for when the client disconnects."
   [^js res setup-fn]
   (.writeHead res 200
               #js {"content-type"  "text/event-stream"
                    "cache-control" "no-cache"
                    "connection"    "keep-alive"})
-  (let [send-fn  (fn [s] (.write res s))
-        close-fn (fn [] (.end res))]
-    (setup-fn send-fn close-fn)))
+  (let [send-fn    (fn [s] (.write res s))
+        close-fn   (fn [] (.end res))
+        on-close-fn (fn [cb] (.on res "close" cb))]
+    (setup-fn send-fn close-fn on-close-fn)))
 
 (defn- handle-request
   "Route and handle a single HTTP request."

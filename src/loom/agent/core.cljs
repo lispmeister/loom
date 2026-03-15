@@ -64,6 +64,12 @@
                                            :port port
                                            :on-chat-fn handle-chat-message)
             (.then (fn [server]
+                     (let [shutdown (fn []
+                                      (println "\nPrime shutting down...")
+                                      (-> (.close server (fn [_] nil))
+                                          (.finally (fn [] (.exit js/process 0)))))]
+                       (.on js/process "SIGINT" shutdown)
+                       (.on js/process "SIGTERM" shutdown))
                      (println (str "Loom Prime listening on port "
                                    (http/server-port server)))
                      (println (str "Model: " model)))))))))

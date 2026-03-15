@@ -43,7 +43,13 @@
         (.then (fn [_]
                  (http/start-supervisor-server state config :port port)))
         (.then (fn [server]
-                 (let [actual-port (.-port (.address server))]
+                 (let [actual-port (.-port (.address server))
+                       shutdown (fn []
+                                  (println "\nSupervisor shutting down...")
+                                  (-> (.close server (fn [_] nil))
+                                      (.finally (fn [] (.exit js/process 0)))))]
+                   (.on js/process "SIGINT" shutdown)
+                   (.on js/process "SIGTERM" shutdown)
                    (println (str "Supervisor listening on port " actual-port)))))
         (.catch (fn [err]
                   (js/console.error "Supervisor failed to start:" err)

@@ -118,9 +118,10 @@
 (defn- handle-logs [_req]
   (http/sse-handler
    _req
-   (fn [send-fn _close-fn]
+   (fn [send-fn _close-fn on-close-fn]
      (swap! sse-clients conj send-fn)
-     (http/send-sse-event send-fn "connected" {:msg "SSE stream connected"}))))
+     (http/send-sse-event send-fn "connected" {:msg "SSE stream connected"})
+     (on-close-fn (fn [] (swap! sse-clients disj send-fn))))))
 
 (def ^:private fs-mod (js/require "node:fs"))
 (def ^:private path-mod (js/require "node:path"))
