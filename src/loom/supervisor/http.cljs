@@ -123,44 +123,34 @@
      (http/send-sse-event send-fn "connected" {:msg "SSE stream connected"})
      (on-close-fn (fn [] (swap! sse-clients disj send-fn))))))
 
-(def ^:private fs-mod (js/require "node:fs"))
 (def ^:private path-mod (js/require "node:path"))
 
-;; -- Lab workspace cleanup --
+;; -- Delegated helpers (implementations in supervisor/lab.cljs) --
 
-(defn- cleanup-lab-workspace
-  "Delete a Lab workspace directory. Best-effort, never throws.
-   Keeps the last `keep-count` workspaces (by modification time) for debugging."
-  [config gen-num & {:keys [keep-count] :or {keep-count 3}}]
-  (try
-    (let [lab-base (:lab-base-dir config)]
-      (when (and lab-base (.existsSync fs-mod lab-base))
-        ;; Delete this generation's workspace
-        (let [record-branch (str "lab/gen-" gen-num)
-              entries (->> (.readdirSync fs-mod lab-base)
-                           (js->clj)
-                           (filter #(.startsWith % "lab-"))
-                           (sort-by (fn [name]
-                                      (try
-                                        (.-mtimeMs (.statSync fs-mod (.join path-mod lab-base name)))
-                                        (catch :default _ 0))))
-                           (reverse))
-              to-delete (drop keep-count entries)]
-          (doseq [dir-name to-delete]
-            (let [full-path (.join path-mod lab-base dir-name)]
-              (.rmSync fs-mod full-path #js {:recursive true :force true}))))))
-    (catch :default e
-      (js/console.warn "Lab workspace cleanup failed:" (.-message e)))))
+(defn- cleanup-lab-workspace [config _gen-num]
+  (lab/cleanup-lab-workspace (:lab-base-dir config)))
 
-(defn- save-program-md
-  "Save program.md to tmp/programs/gen-N.md for reference."
-  [config gen-num program-md]
-  (let [programs-dir (.join path-mod (.dirname path-mod (:generations-path config)) "programs")]
-    (when-not (.existsSync fs-mod programs-dir)
-      (.mkdirSync fs-mod programs-dir #js {:recursive true}))
-    (.writeFileSync fs-mod
-                    (.join path-mod programs-dir (str "gen-" gen-num ".md"))
-                    program-md "utf8")))
+(defn- programs-dir [config]
+  (.join path-mod (.dirname path-mod (:generations-path config)) "programs"))
+
+(defn- save-program-md [config gen-num program-md]
+  (lab/save-program-md (programs-dir config) gen-num program-md))
+
+(defn- save-report [config gen-num record outcome]
+  (let [created   (:created record)
+        completed (.toISOString (js/Date.))
+        duration  (when created
+                    (- (.getTime (js/Date. completed)) (.getTime (js/Date. created))))]
+    (lab/save-generation-report
+     (programs-dir config) gen-num
+     {:generation      gen-num
+      :outcome         (name outcome)
+      :branch          (:branch record)
+      :program-md-hash (:program-md-hash record)
+      :created         created
+      :completed       completed
+      :duration-ms     duration
+      :container-id    (:container-id record)})))
 
 (defn- handle-spawn [_state-atom config req]
   (let [body       (js->clj (http/read-json-body req) :keywordize-keys true)
@@ -174,9 +164,12 @@
         hash       (sha256-short program-md)
         network    (:network config)
         on-timeout (fn [timed-out-gen _container-name]
-                     (let [completed (.toISOString (js/Date.))]
+                     (let [completed (.toISOString (js/Date.))
+                           record    (find-generation config timed-out-gen)]
                        (gen/update-generation gens-path timed-out-gen
                                               {:outcome :timeout :completed completed})
+                       (when record
+                         (save-report config timed-out-gen record :timeout))
                        (swap! lab-timeouts dissoc timed-out-gen)
                        (emit-log "timeout" {:generation timed-out-gen
                                             :status "timeout"
@@ -255,6 +248,7 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :promoted :completed now})
+                         (save-report config gen-num record :promoted)
                          (cleanup-lab-workspace config gen-num)
                          (emit-log "promote" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
@@ -282,6 +276,7 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :failed :completed now})
+                         (save-report config gen-num record :failed)
                          (cleanup-lab-workspace config gen-num)
                          (emit-log "rollback" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num

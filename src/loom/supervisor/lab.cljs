@@ -62,6 +62,50 @@
         (.catch (fn [err]
                   {:error true :message (str "Lab setup failed: " (.-message err))})))))
 
+(defn cleanup-lab-workspace
+  "Delete old Lab workspace directories. Best-effort, never throws.
+   Keeps the last `keep-count` workspaces (by modification time) for debugging."
+  [lab-base-dir & {:keys [keep-count] :or {keep-count 3}}]
+  (try
+    (when (and lab-base-dir (.existsSync fs lab-base-dir))
+      (let [entries (->> (.readdirSync fs lab-base-dir)
+                         (js->clj)
+                         (filter #(.startsWith % "lab-"))
+                         (sort-by (fn [name]
+                                    (try
+                                      (.-mtimeMs (.statSync fs (.join path-mod lab-base-dir name)))
+                                      (catch :default _ 0))))
+                         (reverse))
+            to-delete (drop keep-count entries)]
+        (doseq [dir-name to-delete]
+          (let [full-path (.join path-mod lab-base-dir dir-name)]
+            (.rmSync fs full-path #js {:recursive true :force true})))))
+    (catch :default e
+      (js/console.warn "Lab workspace cleanup failed:" (.-message e)))))
+
+(defn save-program-md
+  "Save program.md to programs-dir/gen-N.md for reference."
+  [programs-dir gen-num program-md]
+  (when-not (.existsSync fs programs-dir)
+    (.mkdirSync fs programs-dir #js {:recursive true}))
+  (.writeFileSync fs
+                  (.join path-mod programs-dir (str "gen-" gen-num ".md"))
+                  program-md "utf8"))
+
+(defn save-generation-report
+  "Write gen-N-report.json with lifecycle metadata.
+   Best-effort — never throws."
+  [programs-dir gen-num report-data]
+  (try
+    (when-not (.existsSync fs programs-dir)
+      (.mkdirSync fs programs-dir #js {:recursive true}))
+    (.writeFileSync fs
+                    (.join path-mod programs-dir (str "gen-" gen-num "-report.json"))
+                    (js/JSON.stringify (clj->js report-data) nil 2)
+                    "utf8")
+    (catch :default e
+      (js/console.warn "Failed to write generation report:" (.-message e)))))
+
 (defn cleanup-lab
   "Stop and remove a Lab container. Best-effort, never rejects."
   [container-name]
