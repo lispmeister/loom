@@ -20,7 +20,7 @@ Do NOT add task lists, backlogs, or checklists to PLAN.md, README.md, or any oth
 
 ## Fixed-Point Contracts
 
-DO NOT MODIFY the Malli schemas in `src/loom/shared/schemas.cljs` without explicit user approval. These are the communication contracts between Prime, Supervisor, and Lab.
+DO NOT MODIFY the Malli schemas in `src/loom/shared/schemas.cljs` without explicit user approval. These are the eval protocol contracts (EvalRequest, EvalResponse). The self-modification cycle uses direct HTTP JSON payloads (POST /spawn, /promote, /rollback) documented in PLAN.md.
 
 ## Build & Run
 
@@ -37,7 +37,6 @@ npm run watch:test
 # Compile and run components
 npm run supervisor
 npm run agent
-npm run lab
 ```
 
 ## Code Style

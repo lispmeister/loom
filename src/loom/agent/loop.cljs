@@ -23,6 +23,13 @@ Work step by step. Read files before editing them. Run tests to verify your chan
   "Maximum tool-use loop iterations per turn to prevent runaway."
   25)
 
+(def ^:dynamic max-context-messages
+  "Maximum number of messages to keep in conversation history.
+   Older messages are replaced with a summary to reduce token usage.
+   Set to 0 to disable trimming. Override via LOOM_MAX_CONTEXT env var."
+  (let [env-val (some-> js/process .-env .-LOOM_MAX_CONTEXT)]
+    (if env-val (js/parseInt env-val 10) 20)))
+
 (def ^:dynamic loop-delay-ms
   "Delay in ms between agent loop iterations to avoid hitting API rate limits.
    Set to 0 to disable. Override via LOOM_LOOP_DELAY_MS env var."
@@ -64,13 +71,52 @@ Work step by step. Read files before editing them. Run tests to verify your chan
   [agent tool-result-messages]
   (update agent :messages into tool-result-messages))
 
+(defn- truncate-tool-content
+  "Truncate a tool_result content string if it exceeds max-chars."
+  [content max-chars]
+  (if (and (string? content) (> (count content) max-chars))
+    (str (subs content 0 max-chars) "\n... (truncated, " (count content) " chars total)")
+    content))
+
+(defn- trim-messages
+  "Trim conversation history to keep token usage bounded.
+   Strategy: keep the first user message (the task), then keep the last
+   max-context-messages messages. Older messages in between are dropped
+   and replaced with a summary marker. Tool result content is truncated
+   to 2000 chars max."
+  [messages]
+  (let [max-content 2000
+        ;; Truncate large tool results in all messages
+        truncated (mapv (fn [msg]
+                          (if (and (= "user" (:role msg)) (vector? (:content msg)))
+                            (update msg :content
+                                    (fn [blocks]
+                                      (mapv (fn [block]
+                                              (if (= "tool_result" (:type block))
+                                                (update block :content truncate-tool-content max-content)
+                                                block))
+                                            blocks)))
+                            msg))
+                        messages)]
+    (if (or (<= max-context-messages 0)
+            (<= (count truncated) (inc max-context-messages))) ;; +1 for first message
+      truncated
+      ;; Keep first message + last N messages, drop middle
+      (let [first-msg  (first truncated)
+            kept       (take-last max-context-messages (rest truncated))
+            n-dropped  (- (count truncated) 1 (count kept))
+            summary    {:role "user"
+                        :content (str "[" n-dropped " earlier messages trimmed to save context]")}]
+        (into [first-msg summary] kept)))))
+
 (defn- call-claude
-  "Send current conversation to Claude. Returns a promise of the response."
+  "Send current conversation to Claude. Returns a promise of the response.
+   Trims conversation history to max-context-messages before sending."
   [agent on-event]
   (claude/send-message
    {:api-key    (:api-key agent)
     :model      (:model agent)
-    :messages   (:messages agent)
+    :messages   (trim-messages (:messages agent))
     :system     (:system agent)
     :tools      tools/tool-definitions
     :max-tokens (:max-tokens agent)

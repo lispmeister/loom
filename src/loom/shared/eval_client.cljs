@@ -1,6 +1,8 @@
 (ns loom.shared.eval-client
   "TCP client for the Lab eval server.
-   Sends EvalRequest as newline-delimited EDN, receives EvalResponse."
+   Sends EvalRequest as newline-delimited EDN, receives EvalResponse.
+   Not currently in the self-modification critical path — verify_generation
+   uses git checkout + npm test instead. Retained for future eval-probe use."
   (:require [cljs.reader :as reader]))
 
 (def net (js/require "node:net"))

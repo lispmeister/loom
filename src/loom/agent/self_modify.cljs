@@ -106,58 +106,102 @@
                  (str "Generation " generation " rolled back.\n"
                       "Status: " (:status result)))))))
 
+;; ---------------------------------------------------------------------------
+;; verify-generation helpers
+;; ---------------------------------------------------------------------------
+
+(def ^:private cp (js/require "node:child_process"))
+
+(defn- git-exec
+  "Run a git command in repo. Returns promise of {:ok true :output ...} or {:error true ...}."
+  [repo & args]
+  (js/Promise.
+   (fn [resolve _]
+     (.execFile cp "git" (clj->js args) #js {:cwd repo :maxBuffer (* 10 1024 1024)}
+                (fn [err stdout stderr]
+                  (if err
+                    (resolve {:error true :message (str stderr)})
+                    (resolve {:ok true :output (str stdout)})))))))
+
+(defn- run-tests
+  "Compile and run tests in repo. Returns promise of {:ok bool :output ... :exit N}."
+  [repo]
+  (js/Promise.
+   (fn [resolve _]
+     (.exec cp "npm test 2>&1 && node out/test.js 2>&1"
+            #js {:cwd repo :timeout 120000 :maxBuffer (* 10 1024 1024)}
+            (fn [err stdout _stderr]
+              (resolve {:ok   (nil? err)
+                        :output (str stdout)
+                        :exit   (if err (or (.-code err) 1) 0)}))))))
+
+(defn- return-to-master
+  "Always checkout master. Best-effort — never rejects."
+  [repo]
+  (js/Promise.
+   (fn [resolve _]
+     (.execFile cp "git" #js ["checkout" "master"] #js {:cwd repo}
+                (fn [_err _stdout _stderr] (resolve nil))))))
+
+(defn- format-test-summary
+  "Format test results into a readable string."
+  [generation passed? exit output]
+  (let [lines   (.split output "\n")
+        summary (->> lines
+                     (filter #(re-find #"Ran \d+ tests|failures|errors" %))
+                     (str/join "\n"))]
+    (str "Verification of gen-" generation ":\n"
+         "Result: " (if passed? "PASS" "FAIL") "\n"
+         "Exit code: " exit "\n"
+         (when (seq summary) (str "Summary:\n" summary "\n"))
+         (when-not passed?
+           (str "\nFull output (last 50 lines):\n"
+                (->> lines (take-last 50) (str/join "\n")))))))
+
 (defn verify-generation
-  "Independently verify a Lab generation's work: checkout its branch,
-   run tests, report results, return to master.
+  "Independently verify a Lab generation's work: get diff, checkout branch,
+   run tests, always return to master, report results with change summary.
    Input: {:generation N :repo_path \"/path/to/repo\"}"
   [{:keys [generation repo_path]}]
   (let [branch (str "lab/gen-" generation)
-        repo   (or repo_path ".")
-        cp     (js/require "node:child_process")]
-    (-> (js/Promise.
-         (fn [resolve _]
-           (.execFile cp "git" #js ["checkout" branch] #js {:cwd repo}
-                      (fn [err _stdout stderr]
-                        (if err
-                          (resolve {:error true :step "checkout"
-                                    :message (str "Failed to checkout " branch ": " stderr)})
-                          (resolve {:ok true}))))))
-        (.then (fn [result]
-                 (if (:error result)
-                   result
-                   (js/Promise.
-                    (fn [resolve _]
-                      (.exec cp "npm test 2>&1 && node out/test.js 2>&1"
-                             #js {:cwd repo :timeout 120000 :maxBuffer (* 10 1024 1024)}
-                             (fn [err stdout _stderr]
-                               (resolve {:ok     (nil? err)
-                                         :step   "tests"
-                                         :output (str stdout)
-                                         :exit   (if err (or (.-code err) 1) 0)}))))))))
-        (.then (fn [test-result]
-                 ;; Always return to master, regardless of test outcome
-                 (-> (js/Promise.
-                      (fn [resolve _]
-                        (.execFile cp "git" #js ["checkout" "master"] #js {:cwd repo}
-                                   (fn [_err _stdout _stderr]
-                                     (resolve test-result))))))))
-        (.then (fn [result]
-                 (if (:error result)
-                   (str "Verification failed at " (:step result) ": " (:message result))
-                   (let [passed? (:ok result)
-                         output  (:output result)
-                         lines   (.split output "\n")
-                         summary (->> lines
-                                      (filter #(re-find #"Ran \d+ tests|failures|errors" %))
-                                      (str/join "\n"))]
-                     (str "Verification of gen-" generation ":\n"
-                          "Result: " (if passed? "PASS" "FAIL") "\n"
-                          "Exit code: " (:exit result) "\n"
-                          (when (seq summary) (str "Summary:\n" summary "\n"))
-                          (when-not passed?
-                            (str "\nFull output (last 50 lines):\n"
-                                 (->> lines (take-last 50) (str/join "\n"))))))))))))
-
+        repo   (or repo_path ".")]
+    ;; Step 1: Get diff stat from master (before checkout, so we don't leave repo dirty)
+    (-> (git-exec repo "diff" "--stat" (str "master..." branch))
+        (.then (fn [diff-stat-result]
+                 ;; Step 2: Get abbreviated diff for review
+                 (-> (git-exec repo "diff" (str "master..." branch))
+                     (.then (fn [diff-result]
+                              {:diff-stat (when (:ok diff-stat-result) (:output diff-stat-result))
+                               :diff      (when (:ok diff-result) (:output diff-result))})))))
+        (.then (fn [diffs]
+                 ;; Step 3: Checkout lab branch
+                 (-> (git-exec repo "checkout" branch)
+                     (.then (fn [checkout-result]
+                              (if (:error checkout-result)
+                                ;; Checkout failed — no cleanup needed, still on master
+                                (str "Verification failed: cannot checkout " branch ": "
+                                     (:message checkout-result))
+                                ;; Step 4: Run tests (always return to master after, via .then+.catch)
+                                (-> (run-tests repo)
+                                    (.then (fn [test-result]
+                                             (-> (return-to-master repo)
+                                                 (.then (fn [_]
+                                                          (str (:diff-stat diffs)
+                                                               "\n"
+                                                               (format-test-summary
+                                                                generation (:ok test-result)
+                                                                (:exit test-result) (:output test-result))
+                                                               "\n\nDiff:\n"
+                                                               (let [d (:diff diffs)]
+                                                                 (if (> (count d) 5000)
+                                                                   (str (subs d 0 5000) "\n... (truncated)")
+                                                                   d))))))))
+                                    (.catch (fn [err]
+                                              ;; Tests threw unexpectedly — still return to master
+                                              (-> (return-to-master repo)
+                                                  (.then (fn [_]
+                                                           (str "Verification failed: unexpected error: "
+                                                                (.-message err)))))))))))))))))
 ;; ---------------------------------------------------------------------------
 ;; Tool definitions and registry
 ;; ---------------------------------------------------------------------------
@@ -180,7 +224,7 @@
                    :properties {:generation {:type "integer" :description "Generation number to rollback"}}
                    :required ["generation"]}}
    {:name "verify_generation"
-    :description "Independently verify a Lab generation's work: checkout its branch, compile and run all tests, report pass/fail, return to master. Use this after spawn_lab returns done, before promoting."
+    :description "Independently verify a Lab generation's work: show diff stat, checkout branch, run tests, always return to master. Reports changes made AND test results. Use after spawn_lab returns done, before promoting."
     :input_schema {:type "object"
                    :properties {:generation {:type "integer" :description "Generation number to verify"}
                                 :repo_path {:type "string" :description "Path to the repo (default: current dir)"}}

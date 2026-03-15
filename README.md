@@ -89,19 +89,10 @@ test/
 
 ## Malli Schemas (Contracts)
 
-These are the fixed points of the system. The agent cannot modify these schemas.
+The eval protocol schemas are the fixed points. The agent cannot modify these.
 
 ```clojure
-;; Modification proposal: Prime → Supervisor
-(def Proposal
-  [:map
-   [:id :string]
-   [:description :string]
-   [:files [:vector [:map [:path :string] [:content :string]]]]
-   [:rationale :string]
-   [:parent-version :int]])
-
-;; Eval protocol: Prime ↔ Lab
+;; Eval protocol: Prime ↔ Lab eval server
 (def EvalRequest
   [:map
    [:form :string]
@@ -112,22 +103,9 @@ These are the fixed points of the system. The agent cannot modify these schemas.
    [:status [:enum :ok :error]]
    [:value {:optional true} :any]
    [:message {:optional true} :string]])
-
-;; Probe result (aggregated)
-(def ProbeResult
-  [:map
-   [:status [:enum :ok :error :timeout]]
-   [:value {:optional true} :any]
-   [:elapsed-ms :int]])
-
-;; Verdict: Prime → Supervisor
-(def Verdict
-  [:map
-   [:proposal-id :string]
-   [:decision [:enum :promote :revert]]
-   [:evidence [:vector ProbeResult]]
-   [:reasoning :string]])
 ```
+
+The self-modification cycle uses direct HTTP JSON payloads (`POST /spawn`, `/promote`, `/rollback`) — see PLAN.md for details.
 
 ## Prerequisites
 

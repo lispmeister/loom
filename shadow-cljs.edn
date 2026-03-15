@@ -13,12 +13,6 @@
    :output-to "out/agent.js"
    :main loom.agent.core/main}
 
-  :lab
-  {:target :node-script
-   :output-to "out/lab.js"
-   :main loom.lab.eval-server/main
-   :compiler-options {:optimizations :simple}}
-
   :lab-worker
   {:target :node-script
    :output-to "out/lab-worker.js"

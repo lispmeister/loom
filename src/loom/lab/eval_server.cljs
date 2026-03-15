@@ -1,7 +1,10 @@
 (ns loom.lab.eval-server
   "Lightweight form evaluation server for Lab containers.
    Accepts newline-delimited EDN forms over TCP, evaluates via cljs.js/eval-str,
-   returns newline-delimited EDN results."
+   returns newline-delimited EDN results.
+   Not currently in the self-modification critical path — Labs run the
+   autonomous worker (lab/worker.cljs) instead. Retained for future
+   eval-probe use by Prime."
   (:require [cljs.js :as cljs]
             [cljs.reader :as reader]
             [cognitect.transit :as transit]))

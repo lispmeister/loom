@@ -19,6 +19,8 @@
 
 ;; Disable loop pacing for tests
 (set! loop/loop-delay-ms 0)
+;; Disable message trimming for existing tests (they check exact message counts)
+(set! loop/max-context-messages 0)
 
 (defn- mock-agent
   "Create an agent with a fake API key (tests override send-message)."
@@ -238,3 +240,57 @@
                            (set! claude/send-message original-send)
                            (is false (str "Unexpected: " err))
                            (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; Message trimming tests (synchronous — no API calls needed)
+;; ---------------------------------------------------------------------------
+
+(deftest test-trim-messages-no-op-when-disabled
+  (testing "Trimming is a no-op when max-context-messages is 0"
+    (binding [loop/max-context-messages 0]
+      (let [msgs (vec (for [i (range 30)]
+                        {:role (if (even? i) "user" "assistant")
+                         :content (str "msg-" i)}))]
+        (is (= 30 (count (#'loop/trim-messages msgs))))))))
+
+(deftest test-trim-messages-keeps-within-limit
+  (testing "Trimming keeps first message + last N when over limit"
+    (binding [loop/max-context-messages 4]
+      (let [msgs [{:role "user" :content "task"}
+                  {:role "assistant" :content "resp-1"}
+                  {:role "user" :content "msg-2"}
+                  {:role "assistant" :content "resp-2"}
+                  {:role "user" :content "msg-3"}
+                  {:role "assistant" :content "resp-3"}
+                  {:role "user" :content "msg-4"}
+                  {:role "assistant" :content "resp-4"}]
+            trimmed (#'loop/trim-messages msgs)]
+        ;; First msg (task) + summary + last 4 = 6
+        (is (= 6 (count trimmed)))
+        ;; First is the original task
+        (is (= "task" (:content (first trimmed))))
+        ;; Second is the summary marker
+        (is (string? (:content (second trimmed))))
+        (is (re-find #"trimmed" (:content (second trimmed))))
+        ;; Last message is preserved
+        (is (= "resp-4" (:content (last trimmed))))))))
+
+(deftest test-trim-messages-no-op-when-under-limit
+  (testing "Trimming is a no-op when messages are under the limit"
+    (binding [loop/max-context-messages 10]
+      (let [msgs [{:role "user" :content "task"}
+                  {:role "assistant" :content "resp"}]]
+        (is (= 2 (count (#'loop/trim-messages msgs))))))))
+
+(deftest test-trim-truncates-tool-results
+  (testing "Tool result content is truncated to 2000 chars"
+    (binding [loop/max-context-messages 0]
+      (let [big-content (apply str (repeat 3000 "x"))
+            msgs [{:role "user"
+                   :content [{:type "tool_result"
+                              :tool_use_id "t1"
+                              :content big-content}]}]
+            trimmed (#'loop/trim-messages msgs)
+            block (first (:content (first trimmed)))]
+        (is (< (count (:content block)) 2100))
+        (is (re-find #"truncated" (:content block)))))))
