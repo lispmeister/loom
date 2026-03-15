@@ -6,11 +6,9 @@
   "scripts": {
     "supervisor": "shadow-cljs compile supervisor && node out/supervisor.js",
     "agent": "shadow-cljs compile agent && node out/agent.js",
-    "lab": "shadow-cljs compile lab && node out/lab.js",
     "test": "shadow-cljs compile test",
     "watch:supervisor": "shadow-cljs watch supervisor",
     "watch:agent": "shadow-cljs watch agent",
-    "watch:lab": "shadow-cljs watch lab",
     "watch:test": "shadow-cljs watch test"
   },
   "dependencies": {
