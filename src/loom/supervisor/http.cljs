@@ -33,7 +33,10 @@
 
 ;; -- Dashboard HTML --
 
-(defn- dashboard-html [config]
+(defn- dashboard-html
+  "Render the Supervisor HTML dashboard. Shows current generation count,
+   links to JSON/SSE endpoints, and a table of all generations with outcome status."
+  [config]
   (let [gens-path (:generations-path config)
         gens      (gen/read-generations gens-path)
         current   (if (empty? gens) 0 (apply max (map :generation gens)))]
@@ -94,12 +97,17 @@
 
 ;; -- Route handlers --
 
-(defn- handle-dashboard [config _req]
+(defn- handle-dashboard
+  "Serve the Supervisor HTML dashboard."
+  [config _req]
   {:status  200
    :headers {"content-type" "text/html"}
    :body    (dashboard-html config)})
 
-(defn- handle-stats [state-atom config _req]
+(defn- handle-stats
+  "Return Supervisor stats as JSON: status, current generation, total count,
+   uptime, and version."
+  [state-atom config _req]
   (let [gens-path (:generations-path config)
         gens      (gen/read-generations gens-path)
         current   (if (empty? gens) 0 (apply max (map :generation gens)))
@@ -111,11 +119,16 @@
                          :uptime-ms           uptime
                          :version             "0.1.0"})))
 
-(defn- handle-versions [config _req]
+(defn- handle-versions
+  "Return the full generation history as a JSON array."
+  [config _req]
   (let [gens (gen/read-generations (:generations-path config))]
     (http/json-response 200 gens)))
 
-(defn- handle-logs [_req]
+(defn- handle-logs
+  "Open an SSE stream for real-time Supervisor events (spawn, promote, rollback,
+   timeout). Registers the client; deregisters on disconnect."
+  [_req]
   (http/sse-handler
    _req
    (fn [send-fn _close-fn on-close-fn]
@@ -127,16 +140,24 @@
 
 ;; -- Delegated helpers (implementations in supervisor/lab.cljs) --
 
-(defn- cleanup-lab-workspace [config _gen-num]
+(defn- cleanup-lab-workspace
+  "Delegate workspace cleanup to lab.cljs, keeping the last 3 workspaces."
+  [config _gen-num]
   (lab/cleanup-lab-workspace (:lab-base-dir config)))
 
-(defn- programs-dir [config]
+(defn- programs-dir
+  "Derive the programs/ directory path from the generations-path config."
+  [config]
   (.join path-mod (.dirname path-mod (:generations-path config)) "programs"))
 
-(defn- save-program-md [config gen-num program-md]
+(defn- save-program-md
+  "Save a copy of program.md as programs/gen-N.md for post-mortem reference."
+  [config gen-num program-md]
   (lab/save-program-md (programs-dir config) gen-num program-md))
 
-(defn- save-report [config gen-num record outcome]
+(defn- save-report
+  "Write a gen-N-report.json with lifecycle metadata (timing, outcome, branch, etc.)."
+  [config gen-num record outcome]
   (let [created   (:created record)
         completed (.toISOString (js/Date.))
         duration  (when created
@@ -152,7 +173,11 @@
       :duration-ms     duration
       :container-id    (:container-id record)})))
 
-(defn- handle-spawn [_state-atom config req]
+(defn- handle-spawn
+  "Handle POST /spawn. Clones the repo, creates a lab branch, writes program.md,
+   launches a Lab container, and starts a 5-minute timeout. On success, records
+   the generation as :in-progress. On failure, records it as :failed."
+  [_state-atom config req]
   (let [body       (js->clj (http/read-json-body req) :keywordize-keys true)
         program-md (:program_md body)
         parent-gen (or (:parent_generation body) 0)
@@ -216,7 +241,11 @@
                                               :host_port      (:host-port result)
                                               :status         "spawned"}))))))))
 
-(defn- handle-promote [_state-atom config req]
+(defn- handle-promote
+  "Handle POST /promote. Cancels the lab timeout, merges the lab branch into
+   master, tags it gen-N, deletes the branch, saves a report, and cleans up
+   the workspace."
+  [_state-atom config req]
   (let [body      (js->clj (http/read-json-body req) :keywordize-keys true)
         gen-num   (:generation body)
         gens-path (:generations-path config)
@@ -254,7 +283,11 @@
                          (http/json-response 200 {:generation gen-num
                                                   :status     "promoted"}))))))))))
 
-(defn- handle-rollback [_state-atom config req]
+(defn- handle-rollback
+  "Handle POST /rollback. Cancels the lab timeout, checks out master, deletes
+   the lab branch, marks the generation as :failed, saves a report, and cleans
+   up the workspace."
+  [_state-atom config req]
   (let [body      (js->clj (http/read-json-body req) :keywordize-keys true)
         gen-num   (:generation body)
         gens-path (:generations-path config)

@@ -49,7 +49,11 @@
                   (agent-http/emit-log "error" {:message msg})
                   msg)))))
 
-(defn main []
+(defn main
+  "Prime agent entry point. Reads ANTHROPIC_API_KEY and LOOM_MODEL from env,
+   creates the agentic loop, starts the HTTP server on PORT (default 8401),
+   and traps SIGINT/SIGTERM for graceful shutdown."
+  []
   (let [api-key (.-ANTHROPIC_API_KEY (.-env js/process))
         model   (or (.-LOOM_MODEL (.-env js/process)) "claude-sonnet-4-20250514")
         port    (let [p (.-PORT (.-env js/process))]

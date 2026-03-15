@@ -73,7 +73,13 @@
 ;; Main
 ;; ---------------------------------------------------------------------------
 
-(defn main []
+(defn main
+  "Lab worker entry point. Reads ANTHROPIC_API_KEY and program.md from /workspace,
+   starts a status HTTP server on PORT (default 8402), then runs the agentic loop
+   to completion. On success, commits all changes and sets status to 'done'.
+   On failure, sets status to 'failed' with an error message. Prime polls
+   GET /status to detect completion."
+  []
   (let [api-key (.-ANTHROPIC_API_KEY (.-env js/process))
         model   (or (.-LOOM_MODEL (.-env js/process)) "claude-haiku-4-5-20251001")
         port    (let [p (.-PORT (.-env js/process))]

@@ -14,7 +14,10 @@
 
 ;; -- Handlers --
 
-(defn- dashboard-html [state]
+(defn- dashboard-html
+  "Render the Prime dashboard as an HTML string. Shows current status, version,
+   links to SSE logs and JSON stats, and a chat input form with JS fetch handler."
+  [state]
   (let [{:keys [status version]} state]
     (str "<!DOCTYPE html>
 <html lang=\"en\">
@@ -55,12 +58,16 @@
 </body>
 </html>")))
 
-(defn- handle-dashboard [state-atom _req]
+(defn- handle-dashboard
+  "Serve the Prime HTML dashboard."
+  [state-atom _req]
   {:status  200
    :headers {"content-type" "text/html"}
    :body    (dashboard-html @state-atom)})
 
-(defn- handle-stats [state-atom _req]
+(defn- handle-stats
+  "Return Prime stats as JSON: status, uptime, message/tool-call counts, version."
+  [state-atom _req]
   (let [{:keys [status messages-count tool-calls-count start-time version]} @state-atom
         uptime-ms (- (.now js/Date) start-time)]
     (http/json-response 200 {:status          (name status)
@@ -69,7 +76,10 @@
                              :tool-calls-count tool-calls-count
                              :version         version})))
 
-(defn- handle-logs [_req]
+(defn- handle-logs
+  "Open an SSE stream for real-time agent events. Registers the client's
+   send-fn in sse-clients; deregisters on disconnect."
+  [_req]
   (http/sse-handler
    _req
    (fn [send-fn _close-fn on-close-fn]
@@ -77,7 +87,10 @@
      (http/send-sse-event send-fn "connected" {:msg "SSE stream open"})
      (on-close-fn (fn [] (swap! sse-clients disj send-fn))))))
 
-(defn- handle-chat [state-atom on-chat-fn req]
+(defn- handle-chat
+  "Handle POST /chat. Parses the JSON body for a 'message' field, delegates
+   to on-chat-fn (the agentic loop), and returns the response text as JSON."
+  [state-atom on-chat-fn req]
   (let [body    (http/read-json-body req)
         message (.-message ^js body)]
     (if on-chat-fn

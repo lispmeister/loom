@@ -15,7 +15,11 @@
   (when-not (.existsSync fs path)
     (.writeFileSync fs path "[]" "utf8")))
 
-(defn main []
+(defn main
+  "Supervisor entry point. Initializes generations.edn, verifies the container
+   CLI is available, ensures the loom-net network exists, and starts the HTTP
+   server. Traps SIGINT/SIGTERM for graceful shutdown."
+  []
   (let [port       (let [p (.-PORT (.-env js/process))]
                      (if p (js/parseInt p 10) 8400))
         repo-path  (or (.-LOOM_REPO_PATH (.-env js/process)) ".")
