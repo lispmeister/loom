@@ -44,10 +44,26 @@
 ;; ---------------------------------------------------------------------------
 
 (defn read-file
-  "Read a file's contents. Returns the file content as a string.
+  "Read a file's contents with 1-based line numbers.
+   Format: right-aligned number padded to width of max line number, tab, then line content.
    On error, returns error message string."
   [{:keys [path]}]
   (-> (.readFile fsp path "utf8")
+      (.then (fn [content]
+               (let [lines (str/split-lines content)
+                     num-lines (count lines)
+                     width (count (str num-lines))
+                     numbered-lines (map-indexed
+                                      (fn [idx line]
+                                        (let [line-num (inc idx)
+                                              padded-num (str/replace
+                                                           (str (str/join (repeat width " ")) line-num)
+                                                           #" +(.+)$"
+                                                           "$1")]
+                                          (str padded-num "	" line)))
+                                      lines)]
+                 (str/join "
+" numbered-lines))))
       (.catch (fn [err]
                 (str "Error reading " path ": " (.-message err))))))
 

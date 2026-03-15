@@ -32,7 +32,7 @@
              (.writeFileSync fs fp "hello world")
              (-> (tools/read-file {:path fp})
                  (.then (fn [result]
-                          (is (= "hello world" result))
+                          (is (= "1\thello world" result))
                           (cleanup-tmpdir dir)
                           (done))))))))
 
@@ -143,7 +143,7 @@
                           (let [block (first (:content msg))]
                             (is (= "tool_result" (:type block)))
                             (is (= "toolu_test1" (:tool_use_id block)))
-                            (is (= "dispatch test" (:content block)))
+                            (is (= "1\tdispatch test" (:content block)))
                             (is (= false (:is_error block))))
                           (cleanup-tmpdir dir)
                           (done))))))))
@@ -167,7 +167,7 @@
                      ;; Second result: read back what was written
                           (let [b2 (first (:content (second results)))]
                             (is (= "toolu_r1" (:tool_use_id b2)))
-                            (is (= "hello from dispatch" (:content b2))))
+                            (is (= "1\thello from dispatch" (:content b2))))
                           (cleanup-tmpdir dir)
                           (done))))))))
 
