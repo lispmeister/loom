@@ -102,6 +102,37 @@ Three problems to solve:
 - **Lab artifacts excluded via .gitignore** — `lab-worker.js` and `program.md` are written to workspace `.gitignore` during `setup-lab-repo` to prevent merge into main.
 - **Dynamic host ports** — Lab containers publish `0:8402` (dynamic host port) to avoid collisions on sequential spawns.
 
+## Next Milestone: Closing the Recursive Loop
+
+The MVP proves the pipeline works (human writes program.md → Lab executes → verify → promote/rollback). The next step is making it genuinely recursive: **Prime autonomously proposes and executes its own next improvement.**
+
+### The Reflect Step
+
+After every promote or rollback, Prime enters a `reflect` phase:
+
+1. Analyze the generation report (what changed, outcome, timing)
+2. Review the current codebase state (test results, architecture gaps, metrics)
+3. Generate the next `program.md` — the single smallest change that most improves reliability, test coverage, or capability
+4. Spawn a new Lab and continue the loop
+
+### Stopping Conditions
+
+The loop needs safety valves:
+- Generation cap (`LOOM_MAX_GENERATIONS`)
+- Token budget
+- Fitness plateau (no measurable improvement over N generations)
+- Human interrupt (SIGINT gracefully stops the loop)
+
+### What This Enables
+
+- **The compelling demo:** "I pointed it at itself and walked away. Here's what it improved."
+- **Fitness tracking:** Each generation produces quantitative metrics (test count, code size, token usage, tool calls). Tracked in generation reports.
+- **Auto-refine on failure:** If a generation fails verification, reflect analyzes the failure and produces an improved program.md before retrying.
+
+Beads will be created after the next round of stability generations confirms the MVP pipeline is solid.
+
+---
+
 ## Not in v0
 
 - Streaming from Claude API
@@ -111,9 +142,7 @@ Three problems to solve:
 - Sub-agents
 - Parallel Lab exploration (tree search)
 - Generational chaining (Labs spawning children)
-- Autonomous self-modification triggers (user-prompted only)
 - Formal verification
 - Production deployment
 - Live user↔Lab interaction (Labs are autonomous for now)
-- Auto-refine `program.md` on failure (retry only for v0)
 - Lab REPL for deep inspection (eval server available but not wired to Prime)
