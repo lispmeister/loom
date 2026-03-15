@@ -23,6 +23,19 @@ Work step by step. Read files before editing them. Run tests to verify your chan
   "Maximum tool-use loop iterations per turn to prevent runaway."
   25)
 
+(def ^:dynamic loop-delay-ms
+  "Delay in ms between agent loop iterations to avoid hitting API rate limits.
+   Set to 0 to disable. Override via LOOM_LOOP_DELAY_MS env var."
+  (let [env-val (some-> js/process .-env .-LOOM_LOOP_DELAY_MS)]
+    (if env-val (js/parseInt env-val 10) 2000)))
+
+(defn- delay-ms
+  "Return a promise that resolves after ms milliseconds. Resolves immediately if ms <= 0."
+  [ms]
+  (if (pos? ms)
+    (js/Promise. (fn [resolve _] (js/setTimeout resolve ms)))
+    (js/Promise.resolve nil)))
+
 (defn create-agent
   "Create an agent state map.
    Options:
@@ -104,7 +117,9 @@ Work step by step. Read files before editing them. Run tests to verify your chan
                                            :tool-id (:tool_use_id block)
                                            :error?  (:is_error block)}))))
                           (let [agent'' (append-tool-results agent' results)]
-                            (tool-use-loop agent'' on-event (inc iteration))))))))))))))
+                            ;; Pace API calls to stay under rate limits
+                            (-> (delay-ms loop-delay-ms)
+                                (.then (fn [_] (tool-use-loop agent'' on-event (inc iteration)))))))))))))))))
 
 (defn run-turn
   "Run one conversational turn: append user message, enter the tool-use loop,

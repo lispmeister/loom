@@ -250,8 +250,10 @@ The Lab container currently only runs the eval server. For self-modification, La
 Items to address before or shortly after a clean Phase 6 run.
 
 - [x] **Rate-limit-aware retry** — In `claude.cljs`, on 429 response parse `retry-after` header, wait that duration, then retry (max 3 retries). Committed.
+- [ ] **Add pacing to agent loop** — Configurable delay (default 2-3s) between API calls in `loop.cljs`. Gen-1 hit ~130 rate-limited requests due to Haiku input tokens saturating the 50k/min limit. Pacing trades latency for reliability.
+- [ ] **Trim conversation history** — Cap or summarize older messages in the agent loop to reduce input tokens per call. Full conversation replay is the main driver of input token volume.
 - [ ] **Keep program.md focused** — Document guidelines for writing effective program.md: single focused task, explicit file paths, concrete acceptance criteria, avoid open-ended exploration.
-- [ ] **Request API rate limit increase** — Once usage patterns stabilize, request higher limits from Anthropic for the project API key.
+- [ ] **Request API rate limit increase** — Account has real usage history now (~130 rate-limited requests on Mar 15). Request higher Haiku input token limit from Anthropic.
 - [ ] **Batch API for non-interactive work** — Evaluate Anthropic Batch API (50% cost reduction, higher limits, 24h turnaround) for Lab tasks that don't need real-time interaction.
 - [ ] **GPG-sign commits from Lab containers** — Figure out how to forward or provision GPG signing inside Lab containers so that Lab commits are signed. Currently disabled via `commit.gpgsign false` in lab repo config.
 
@@ -312,12 +314,14 @@ Items to address before or shortly after a clean Phase 6 run.
 2. **Proposal schema versioning** — no version marker on fixed-point schemas. (Revisit after Phase 6)
 3. **Lab concurrency cost** — how expensive is an Apple Containerization VM? Determines feasibility of parallel Labs. (Explore after v0)
 4. **State schema migration** — v0 uses EDN + version tag with fresh-start fallback. Proper migration needed once state format stabilizes. (Revisit after Phase 6)
-5. **API rate limits** — New Anthropic API accounts have low rate limits (30k input tokens/min for Sonnet). The Lab agent hit this mid-task during Phase 6 testing. Strategy to mitigate:
-   - **Use Haiku for Lab tasks** — much cheaper, higher rate limits, sufficient for straightforward code edits. Set `LOOM_MODEL=claude-haiku-4-5-20251001` for Labs.
+5. **API rate limits** — Haiku input tokens hit ~100k/min against a 50k/min limit during gen-1 (Mar 15), causing ~130 rate-limited requests. Output tokens (4k/min vs 10k limit) are fine. Prompt cache hit rate ~90% helps but doesn't prevent saturation. Mitigations (ordered by priority):
+   - ~~**Use Haiku for Lab tasks**~~ — done. Labs default to `claude-haiku-4-5-20251001`.
+   - ~~**Rate-limit-aware retry**~~ — done. On 429, parse `retry-after`, wait, retry up to 3 times.
+   - **Add pacing to agent loop** — insert configurable delay (2-3s) between API calls in `loop.cljs`. Trades latency for reliability — a Lab that takes 4 min instead of 2 but avoids 429s is better.
+   - **Trim conversation history** — each loop iteration sends full conversation. For multi-step edits the context balloons. Cap history to last N messages or summarize older turns to reduce input tokens.
    - **Keep program.md focused** — smaller tasks = fewer loop iterations = fewer API calls. Avoid open-ended exploration in v0.
-   - **Rate-limit-aware retry** — on 429, parse `retry-after` header, wait, then continue the loop instead of aborting. (Implement in `claude.cljs`.)
-   - **Request rate limit increase** — once usage patterns stabilize, request higher limits from Anthropic.
-   - **Batch tier** — for non-interactive Lab work, consider Anthropic's Batch API (50% cost reduction, higher limits, 24h turnaround). Not suitable for interactive loops but good for bulk tasks.
+   - **Request rate limit increase** — usage pattern is legitimate, account has real history now. Request higher Haiku input token limit.
+   - **Batch API for Labs** — Lab tasks are non-interactive (fire and forget, poll for results). Batch API: 50% cost reduction, much higher limits, up to 24h turnaround (actual wait likely much shorter).
 
 ## Not in v0
 

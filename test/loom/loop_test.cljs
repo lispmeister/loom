@@ -17,6 +17,9 @@
 (defn- cleanup [dir]
   (.rmSync fs dir #js {:recursive true :force true}))
 
+;; Disable loop pacing for tests
+(set! loop/loop-delay-ms 0)
+
 (defn- mock-agent
   "Create an agent with a fake API key (tests override send-message)."
   []
