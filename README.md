@@ -8,24 +8,25 @@ The architecture is described in detail in [The Prime and the Lab](https://lispm
 
 Three components, all ClojureScript on Node.js:
 
-- **Prime Container** — The live, known-good agent. Runs the agentic loop (Claude API → tool dispatch → repeat). Connects to Lab containers to probe modified code.
-- **Supervisor** — Runs on the host (macOS). Manages container lifecycle: create, start, stop, destroy. Maintains version history. Exposes HTTP dashboard.
-- **Lab Container** — Ephemeral. Boots modified agent code with a form evaluation server. The Prime probes it to judge whether a modification works.
+- **Prime Container** — The live, known-good agent. Runs the agentic loop (Claude API → tool dispatch → repeat). Spawns Labs, verifies results, promotes or rolls back.
+- **Supervisor** — Runs on the host (macOS). Manages container lifecycle: create, start, stop, destroy. Maintains generation history. Exposes HTTP dashboard.
+- **Lab Container** — Ephemeral. Reads `program.md`, runs an autonomous agent loop, commits results. Prime verifies independently before promoting.
 
 ```
 Host (macOS 26, Apple Silicon)
 ├── Supervisor (ClojureScript/Node)
 │   ├── HTTP dashboard (:8400)
 │   ├── Container lifecycle (shells out to `container` CLI)
-│   └── versions/ directory (immutable version history)
+│   └── generations.edn (lineage tracking)
 ├── Prime Container
 │   ├── Agent loop + Claude API client
-│   ├── 5 tools: read-file, write-file, edit-file, bash, self-modify
-│   ├── Eval client (connects to Lab's eval server)
+│   ├── Tools: read-file, write-file, edit-file, bash, spawn_lab,
+│   │         check_lab_status, verify_generation, promote_generation
 │   └── HTTP dashboard + chat endpoint (:8401)
 └── Lab Container (ephemeral)
-    ├── Modified agent source
-    └── Form eval server (TCP, accepts EDN forms, returns EDN results)
+    ├── Autonomous agent (reads program.md, implements task)
+    ├── GET /status endpoint
+    └── Commits to lab/gen-N branch
 ```
 
 ## Tech Stack
@@ -38,7 +39,7 @@ Host (macOS 26, Apple Silicon)
 | Containers | [Apple Containerization](https://github.com/apple/container) — VM-per-container |
 | LLM | Claude API (Anthropic) — single provider for v0 |
 | HTTP | Node.js `http` module — no frameworks |
-| Fallback containers | [UTM](https://docs.getutm.app/) via `utmctl` CLI |
+| Task tracking | [beads](https://github.com/lispmeister/beads) |
 
 ## Project Structure
 
@@ -46,9 +47,9 @@ Host (macOS 26, Apple Silicon)
 src/
   loom/
     shared/        — Malli schemas, eval protocol, HTTP helpers
-    agent/         — Agentic loop, Claude API client, tools
+    agent/         — Agentic loop, Claude API client, tools, self-modify
     supervisor/    — Container lifecycle, version management, dashboard
-    lab/           — Form evaluation server (~50 lines)
+    lab/           — Eval server + autonomous worker
 test/
   loom/            — Tests
 ```
@@ -63,9 +64,28 @@ test/
 
 4. **Source files as serialization.** Modified code travels as `.cljs` files, not serialized ASTs or binary formats. The Supervisor copies files between version directories.
 
-5. **Container = keep/revert boundary.** Instead of building safety into the language, we put experiments in disposable VMs. Promote = copy source to new version. Revert = destroy container.
+5. **Container = keep/revert boundary.** Instead of building safety into the language, we put experiments in disposable VMs. Promote = merge to main + tag. Revert = destroy container + discard branch.
 
-6. **No MCP, no sub-agents, no streaming for v0.** Five tools, direct Claude API calls, stdin/stdout simplicity. Following Pi coding agent's principle of radical minimalism.
+6. **No MCP, no sub-agents, no streaming for v0.** Direct Claude API calls, radical minimalism. Following Pi coding agent's approach.
+
+## HTTP Endpoints
+
+**Supervisor (:8400)**
+- `GET /` — Dashboard (generation history, status)
+- `GET /logs` — SSE event stream
+- `GET /stats` — JSON stats
+- `POST /spawn` — Create Lab container with program.md
+- `POST /promote` — Merge lab branch, tag, cleanup
+- `POST /rollback` — Discard lab branch, cleanup
+
+**Prime (:8401)**
+- `GET /` — Dashboard
+- `GET /logs` — SSE event stream
+- `GET /stats` — JSON stats
+- `POST /chat` — User message input, SSE response
+
+**Lab (:8402)**
+- `GET /status` — `{status, progress, error}`
 
 ## Malli Schemas (Contracts)
 
@@ -109,23 +129,6 @@ These are the fixed points of the system. The agent cannot modify these schemas.
    [:reasoning :string]])
 ```
 
-## HTTP Endpoints
-
-**Supervisor (:8400)**
-- `GET /` — Dashboard
-- `GET /logs` — SSE event stream
-- `GET /stats` — JSON stats
-- `GET /lab/repl` — Proxied Lab eval session
-- `GET /versions` — Version history with diffs
-- `POST /proposal` — Receive modification proposal from Prime
-- `POST /verdict` — Receive promote/revert verdict from Prime
-
-**Prime (:8401)**
-- `GET /` — Dashboard
-- `GET /logs` — SSE event stream
-- `GET /stats` — JSON stats
-- `POST /chat` — User message input, SSE response
-
 ## Prerequisites
 
 - macOS 26+ on Apple Silicon
@@ -156,6 +159,7 @@ npm run supervisor
 
 - VS Code + [Calva](https://calva.io/) for REPL-connected editing
 - Watch mode: `npm run watch:test` for continuous test compilation
+- Task tracking: `beads list` to see open work
 
 ## References
 

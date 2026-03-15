@@ -2,7 +2,21 @@
 
 ## What This Is
 
-Loom is a self-modifying coding agent in ClojureScript. See [README.md](README.md) for full architecture, schemas, and setup. See [PLAN.md](PLAN.md) for the implementation plan.
+Loom is a self-modifying coding agent in ClojureScript. See [README.md](README.md) for full architecture, schemas, and setup. See [PLAN.md](PLAN.md) for architecture and design decisions.
+
+## Task Tracking
+
+All tasks, features, and bugs are tracked in **beads** — not in markdown files.
+
+```bash
+beads list           # open issues
+beads list --all     # include closed
+beads show <id>      # details + dependencies
+beads create --title "..." --description "..." --priority P2 --type task
+beads close <id>     # close a completed issue
+```
+
+Do NOT add task lists, backlogs, or checklists to PLAN.md, README.md, or any other markdown file. If work needs tracking, create a bead.
 
 ## Fixed-Point Contracts
 
@@ -49,4 +63,4 @@ test/loom/          — Tests
 ## References
 
 - [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html) — Architecture spec
-- [PLAN.md](PLAN.md) — Implementation plan with phase dependencies
+- [PLAN.md](PLAN.md) — Architecture and design decisions
