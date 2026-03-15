@@ -10,16 +10,20 @@
 (def ^:private os (js/require "node:os"))
 
 (defn- make-lab-dir
-  "Create a temp directory for the Lab's repo clone."
-  []
-  (.mkdtempSync fs (.join path-mod (.tmpdir os) "loom-lab-")))
+  "Create a temp directory for the Lab's repo clone.
+   If base-dir is provided, create under that directory instead of system temp."
+  [& {:keys [base-dir]}]
+  (let [parent (or base-dir (.tmpdir os))]
+    (when-not (.existsSync fs parent)
+      (.mkdirSync fs parent #js {:recursive true}))
+    (.mkdtempSync fs (.join path-mod parent "lab-"))))
 
 (defn setup-lab-repo
   "Clone the source repo, create the lab branch, and write program.md.
    Returns a promise resolving to {:ok true :lab-dir <path> :branch <name>}
    or {:error true :message <string>}."
-  [source-repo-path branch-name program-md]
-  (let [lab-dir (make-lab-dir)
+  [source-repo-path branch-name program-md & {:keys [base-dir]}]
+  (let [lab-dir (make-lab-dir :base-dir base-dir)
         child-process (js/require "node:child_process")]
     (-> (git/clone-repo source-repo-path lab-dir)
         (.then (fn [result]
@@ -86,7 +90,7 @@
      :worker-path — path to compiled lab-worker.js (default: out/lab-worker.js)
      :on-timeout  — callback (fn [gen-num container-name]) called on 5-min timeout"
   [source-repo-path gen-num program-md
-   & {:keys [image network env-vars container-port on-timeout worker-path]
+   & {:keys [image network env-vars container-port on-timeout worker-path lab-base-dir]
       :or {image "loom-lab:latest"
            container-port 8402
            on-timeout (fn [_gen-num _container-name])
@@ -97,7 +101,7 @@
         api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
         lab-env        (cond-> {:PORT (str container-port)}
                          api-key (assoc :ANTHROPIC_API_KEY api-key))]
-    (-> (setup-lab-repo source-repo-path branch program-md)
+    (-> (setup-lab-repo source-repo-path branch program-md :base-dir lab-base-dir)
         (.then (fn [result]
                  (if (:error result)
                    result

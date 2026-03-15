@@ -17,3 +17,6 @@ generations.edn
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Runtime data (lab workspaces, generations, programs)
+tmp/

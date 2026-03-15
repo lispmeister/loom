@@ -8,49 +8,77 @@
       "http://localhost:8400"))
 
 ;; ---------------------------------------------------------------------------
+;; Internal polling
+;; ---------------------------------------------------------------------------
+
+(def ^:dynamic poll-interval-ms 5000)
+(def ^:dynamic poll-timeout-ms  300000)  ;; 5 minutes
+
+(defn- poll-until-done
+  "Poll a Lab /status URL every poll-interval-ms until status is done/failed
+   or poll-timeout-ms elapses. Returns promise of final status string."
+  [status-url start-time]
+  (-> (client/get-json status-url :timeout 5000)
+      (.catch (fn [_] {:error true :message "connection refused"}))
+      (.then (fn [result]
+               (let [elapsed    (- (.now js/Date) start-time)
+                     ;; HTTP errors have {:error true :message "..."}.
+                     ;; Lab status has {:status "..." :error "reason"} where error is a string.
+                     http-err?  (true? (:error result))
+                     status     (when-not http-err? (:status result))
+                     lab-error  (when-not http-err? (:error result))]
+                 (cond
+                   ;; Lab finished
+                   (= status "done")
+                   (str "Lab completed successfully.\n"
+                        "Progress: " (:progress result) "\n"
+                        "Elapsed: " (Math/round (/ elapsed 1000)) "s")
+
+                   ;; Lab failed
+                   (= status "failed")
+                   (str "Lab failed.\n"
+                        "Error: " lab-error "\n"
+                        "Progress: " (:progress result) "\n"
+                        "Elapsed: " (Math/round (/ elapsed 1000)) "s")
+
+                   ;; Timed out waiting
+                   (>= elapsed poll-timeout-ms)
+                   (str "Lab polling timed out after " (Math/round (/ elapsed 1000)) "s.\n"
+                        "Last status: " (or status "unreachable") "\n"
+                        "Last progress: " (:progress result ""))
+
+                   ;; Still running or not ready — wait and retry
+                   :else
+                   (js/Promise.
+                    (fn [resolve _]
+                      (js/setTimeout
+                       (fn [] (resolve (poll-until-done status-url start-time)))
+                       poll-interval-ms)))))))))
+
+;; ---------------------------------------------------------------------------
 ;; Tool implementations
 ;; ---------------------------------------------------------------------------
 
 (defn spawn-lab
   "Spawn a Lab container with a program.md task spec.
-   POSTs to Supervisor /spawn, returns generation info as string."
+   POSTs to Supervisor /spawn, then polls Lab /status until done/failed/timeout.
+   Returns the final result — no separate polling tool call needed."
   [{:keys [program_md]}]
   (-> (client/post-json (str supervisor-url "/spawn")
                         {:program_md program_md})
       (.then (fn [result]
                (if (:error result)
                  (str "Error spawning Lab: " (:message result))
-                 (str "Lab spawned successfully.\n"
-                      "Generation: " (:generation result) "\n"
-                      "Branch: " (:branch result) "\n"
-                      "Container: " (:container-name result) "\n"
-                      "Host port: " (:host-port result) "\n"
-                      "Status: " (:status result)))))))
-
-(defn- retry-get
-  "GET with connect-retry. Retries up to max-retries times with delay-ms between."
-  [url max-retries delay-ms attempt]
-  (-> (client/get-json url :timeout 5000)
-      (.then (fn [result]
-               (if (and (:error result) (< attempt max-retries))
-                 (js/Promise.
-                  (fn [resolve _]
-                    (js/setTimeout
-                     (fn [] (resolve (retry-get url max-retries delay-ms (inc attempt))))
-                     delay-ms)))
-                 result)))))
-
-(defn check-lab-status
-  "Check Lab container status. Retries on connection refused (up to 5 times, 2s apart).
-   Input: {:host \"lab-gen-1\" :port 8402} or {:url \"http://...\"}"
-  [{:keys [host port url]}]
-  (let [target-url (or url (str "http://" host ":" (or port 8402) "/status"))]
-    (-> (retry-get target-url 5 2000 0)
-        (.then (fn [result]
-                 (if (:error result)
-                   (str "Error checking Lab status: " (:message result))
-                   (str "Lab status:\n"
-                        (js/JSON.stringify (clj->js result) nil 2))))))))
+                 (let [gen-num  (:generation result)
+                       branch   (:branch result)
+                       port     (or (:host_port result) (:hostPort result) (:host-port result))
+                       status-url (str "http://localhost:" port "/status")]
+                   (println (str "[spawn_lab] Gen " gen-num " spawned, polling " status-url))
+                   (-> (poll-until-done status-url (.now js/Date))
+                       (.then (fn [poll-result]
+                                (str "Generation: " gen-num "\n"
+                                     "Branch: " branch "\n"
+                                     poll-result))))))))))
 
 (defn promote-generation
   "Promote a Lab generation: merge branch into main, tag, delete branch.
@@ -118,7 +146,6 @@
                    (str "Verification failed at " (:step result) ": " (:message result))
                    (let [passed? (:ok result)
                          output  (:output result)
-                         ;; Extract summary line (last few lines with test counts)
                          lines   (.split output "\n")
                          summary (->> lines
                                       (filter #(re-find #"Ran \d+ tests|failures|errors" %))
@@ -132,23 +159,16 @@
                                  (->> lines (take-last 50) (str/join "\n"))))))))))))
 
 ;; ---------------------------------------------------------------------------
-;; Tool definitions and registry (for merging into agent tools)
+;; Tool definitions and registry
 ;; ---------------------------------------------------------------------------
 
 (def tool-definitions
   [{:name "spawn_lab"
-    :description "Spawn a Lab container to execute a task defined in program_md. The Lab runs autonomously and commits results to its branch."
+    :description "Spawn a Lab container to execute a task. Blocks until the Lab finishes (done/failed) or times out (5 min). Returns the final status — no need to poll separately."
     :input_schema {:type "object"
                    :properties {:program_md {:type "string"
                                              :description "The program.md content: task spec, acceptance criteria, success conditions"}}
                    :required ["program_md"]}}
-   {:name "check_lab_status"
-    :description "Check the status of a running Lab container. Retries automatically if the Lab isn't ready yet."
-    :input_schema {:type "object"
-                   :properties {:host {:type "string" :description "Lab container hostname (e.g. lab-gen-1)"}
-                                :port {:type "integer" :description "Lab container port (default 8402)"}
-                                :url {:type "string" :description "Full URL to Lab /status (alternative to host+port)"}}
-                   :required []}}
    {:name "promote_generation"
     :description "Promote a successful Lab generation: merge its branch into main, create a git tag, delete the lab branch."
     :input_schema {:type "object"
@@ -160,7 +180,7 @@
                    :properties {:generation {:type "integer" :description "Generation number to rollback"}}
                    :required ["generation"]}}
    {:name "verify_generation"
-    :description "Independently verify a Lab generation's work: checkout its branch, compile and run all tests, report pass/fail, return to master. Use this after a Lab reports done, before promoting."
+    :description "Independently verify a Lab generation's work: checkout its branch, compile and run all tests, report pass/fail, return to master. Use this after spawn_lab returns done, before promoting."
     :input_schema {:type "object"
                    :properties {:generation {:type "integer" :description "Generation number to verify"}
                                 :repo_path {:type "string" :description "Path to the repo (default: current dir)"}}
@@ -168,7 +188,6 @@
 
 (def registry
   {"spawn_lab"           spawn-lab
-   "check_lab_status"    check-lab-status
    "promote_generation"  promote-generation
    "rollback_generation" rollback-generation
    "verify_generation"   verify-generation})

@@ -122,6 +122,19 @@
      (swap! sse-clients conj send-fn)
      (http/send-sse-event send-fn "connected" {:msg "SSE stream connected"}))))
 
+(def ^:private fs-mod (js/require "node:fs"))
+(def ^:private path-mod (js/require "node:path"))
+
+(defn- save-program-md
+  "Save program.md to tmp/programs/gen-N.md for reference."
+  [config gen-num program-md]
+  (let [programs-dir (.join path-mod (.dirname path-mod (:generations-path config)) "programs")]
+    (when-not (.existsSync fs-mod programs-dir)
+      (.mkdirSync fs-mod programs-dir #js {:recursive true}))
+    (.writeFileSync fs-mod
+                    (.join path-mod programs-dir (str "gen-" gen-num ".md"))
+                    program-md "utf8")))
+
 (defn- handle-spawn [_state-atom config req]
   (let [body       (js->clj (http/read-json-body req) :keywordize-keys true)
         program-md (:program_md body)
@@ -141,11 +154,13 @@
                        (emit-log "timeout" {:generation timed-out-gen
                                             :status "timeout"
                                             :message "Lab killed after 5 minute timeout"})))]
+    (save-program-md config gen-num program-md)
     (emit-log "spawn" {:generation gen-num :branch branch :status "starting"})
     (-> (lab/spawn-lab repo-path gen-num program-md
                        :network network
                        :image (or (:lab-image config) "loom-lab:latest")
-                       :on-timeout on-timeout)
+                       :on-timeout on-timeout
+                       :lab-base-dir (:lab-base-dir config))
         (.then (fn [result]
                  (if (:error result)
                    (do
@@ -175,11 +190,11 @@
                      (emit-log "spawn" {:generation gen-num :status "spawned"
                                         :container (:container-name result)
                                         :port (:host-port result)})
-                     (http/json-response 200 {:generation      gen-num
-                                              :branch          branch
-                                              :container-name  (:container-name result)
-                                              :host-port       (:host-port result)
-                                              :status          "spawned"}))))))))
+                     (http/json-response 200 {:generation     gen-num
+                                              :branch         branch
+                                              :container_name (:container-name result)
+                                              :host_port      (:host-port result)
+                                              :status         "spawned"}))))))))
 
 (defn- handle-promote [_state-atom config req]
   (let [body      (js->clj (http/read-json-body req) :keywordize-keys true)

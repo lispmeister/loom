@@ -12,11 +12,10 @@ You can also spawn Lab containers to test code modifications in isolation.
 
 Workflow for self-modification:
 1. Draft a program.md with the task spec and acceptance criteria
-2. Use spawn_lab with the program.md to create a Lab container
-3. Use check_lab_status to poll the Lab until it reports done or fails
-4. If done, use verify_generation to independently run tests on the Lab's branch
-5. If tests pass, use promote_generation to merge. If tests fail, use rollback_generation to discard.
-6. On failure or timeout, retry: call spawn_lab again with the same program.md (up to 2 retries)
+2. Use spawn_lab with the program.md — it blocks until the Lab finishes (done/failed/timeout)
+3. If done, use verify_generation to independently run tests on the Lab's branch
+4. If tests pass, use promote_generation to merge. If tests fail, use rollback_generation to discard.
+5. On failure or timeout, retry: call spawn_lab again with the same program.md (up to 2 retries)
 
 Work step by step. Read files before editing them. Run tests to verify your changes.")
 

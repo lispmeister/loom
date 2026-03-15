@@ -19,11 +19,16 @@
   (let [port       (let [p (.-PORT (.-env js/process))]
                      (if p (js/parseInt p 10) 8400))
         repo-path  (or (.-LOOM_REPO_PATH (.-env js/process)) ".")
-        gens-path  (.join path-mod repo-path "generations.edn")
+        tmp-dir    (.join path-mod repo-path "tmp")
+        _          (when-not (.existsSync fs tmp-dir)
+                     (.mkdirSync fs tmp-dir #js {:recursive true}))
+        gens-path  (.join path-mod tmp-dir "generations.edn")
         network    (or (.-LOOM_NETWORK (.-env js/process)) "loom-net")
+        lab-dir    (.join path-mod tmp-dir "labs")
         config     {:repo-path        repo-path
                     :generations-path gens-path
-                    :network          network}]
+                    :network          network
+                    :lab-base-dir     lab-dir}]
     (ensure-generations-file gens-path)
     (println "Loom supervisor starting...")
     (-> (container/cli-available?)
