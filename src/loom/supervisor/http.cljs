@@ -157,22 +157,25 @@
   (lab/save-program-md (programs-dir config) gen-num program-md))
 
 (defn- save-report
-  "Write a gen-N-report.json with lifecycle metadata (timing, outcome, branch, etc.)."
-  [config gen-num record outcome]
+  "Write a gen-N-report.json with lifecycle metadata (timing, outcome, branch, etc.).
+   Optional extra-data map is merged into the report (for token-usage, diff-stats, etc.)."
+  [config gen-num record outcome & {:keys [extra-data]}]
   (let [created   (:created record)
         completed (.toISOString (js/Date.))
         duration  (when created
                     (- (.getTime (js/Date. completed)) (.getTime (js/Date. created))))]
     (lab/save-generation-report
      (programs-dir config) gen-num
-     {:generation      gen-num
-      :outcome         (name outcome)
-      :branch          (:branch record)
-      :program-md-hash (:program-md-hash record)
-      :created         created
-      :completed       completed
-      :duration-ms     duration
-      :container-id    (:container-id record)})))
+     (merge
+      {:generation      gen-num
+       :outcome         (name outcome)
+       :branch          (:branch record)
+       :program-md-hash (:program-md-hash record)
+       :created         created
+       :completed       completed
+       :duration-ms     duration
+       :container-id    (:container-id record)}
+      extra-data))))
 
 (defn- handle-spawn
   "Handle POST /spawn. Clones the repo, creates a lab branch, writes program.md,
@@ -217,11 +220,14 @@
                               completed  (.toISOString (js/Date.))
                               record     (find-generation config gen-num)
                               container-name (str "lab-gen-" gen-num)
-                              lab-dir    (:lab-dir entry)]
+                              lab-dir    (:lab-dir entry)
+                              token-usage (:token-usage final-status)]
                           (gen/update-generation gens-path gen-num
                                                  {:outcome outcome :completed completed})
                           (when record
-                            (save-report config gen-num record outcome))
+                            (save-report config gen-num record outcome
+                                         :extra-data (cond-> {}
+                                                       token-usage (assoc :token-usage token-usage))))
                           ;; Fetch Lab branch into main repo so verify/promote can find it
                           (when (and lab-dir (= outcome :done))
                             (-> (git/fetch-branch repo-path lab-dir branch)
@@ -239,7 +245,8 @@
                           (emit-log "lab-done" {:generation gen-num
                                                 :status (name outcome)
                                                 :progress (:progress final-status)
-                                                :error (:error final-status)})
+                                                :error (:error final-status)
+                                                :token-usage token-usage})
                           ;; Stop container (best-effort) but keep workspace for verify
                           (lab/cleanup-lab container-name))))]
     (save-program-md config gen-num program-md)

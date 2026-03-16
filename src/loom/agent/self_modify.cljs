@@ -143,6 +143,19 @@
      (.execFile cp "git" #js ["checkout" "master"] #js {:cwd repo}
                 (fn [_err _stdout _stderr] (resolve nil))))))
 
+(defn- parse-test-counts
+  "Extract structured test results from test output.
+   Returns {:tests-run N :assertions N :failures N :errors N :passed? bool}."
+  [output passed?]
+  (let [ran-match  (re-find #"Ran (\d+) tests containing (\d+) assertions" output)
+        fail-match (re-find #"(\d+) failures" output)
+        err-match  (re-find #"(\d+) errors" output)]
+    {:tests-run  (if ran-match (js/parseInt (nth ran-match 1) 10) 0)
+     :assertions (if ran-match (js/parseInt (nth ran-match 2) 10) 0)
+     :failures   (if fail-match (js/parseInt (nth fail-match 1) 10) 0)
+     :errors     (if err-match (js/parseInt (nth err-match 1) 10) 0)
+     :passed?    passed?}))
+
 (defn- format-test-summary
   "Format test results into a readable string."
   [generation passed? exit output]
@@ -158,9 +171,25 @@
            (str "\nFull output (last 50 lines):\n"
                 (->> lines (take-last 50) (str/join "\n")))))))
 
+;; Atom to store the last verification result for reports
+(defonce last-verification (atom nil))
+
+(defn- parse-shortstat
+  "Parse git diff --shortstat output into {:files-changed N :insertions N :deletions N}."
+  [output]
+  (let [files (if-let [m (re-find #"(\d+) files? changed" output)]
+                (js/parseInt (nth m 1) 10) 0)
+        ins   (if-let [m (re-find #"(\d+) insertions?" output)]
+                (js/parseInt (nth m 1) 10) 0)
+        dels  (if-let [m (re-find #"(\d+) deletions?" output)]
+                (js/parseInt (nth m 1) 10) 0)]
+    {:files-changed files :insertions ins :deletions dels}))
+
 (defn verify-generation
   "Independently verify a Lab generation's work: get diff, checkout branch,
    run tests, always return to master, report results with change summary.
+   Returns a string for Prime AND stores structured results in the
+   :last-verification atom for the Supervisor to read.
    Input: {:generation N :repo_path \"/path/to/repo\"}"
   [{:keys [generation repo_path]}]
   (let [branch (str "lab/gen-" generation)
@@ -168,11 +197,15 @@
     ;; Step 1: Get diff stat from master (before checkout, so we don't leave repo dirty)
     (-> (git-exec repo "diff" "--stat" (str "master..." branch))
         (.then (fn [diff-stat-result]
-                 ;; Step 2: Get abbreviated diff for review
+                 ;; Step 2: Get abbreviated diff + shortstat for review
                  (-> (git-exec repo "diff" (str "master..." branch))
                      (.then (fn [diff-result]
-                              {:diff-stat (when (:ok diff-stat-result) (:output diff-stat-result))
-                               :diff      (when (:ok diff-result) (:output diff-result))})))))
+                              (-> (git-exec repo "diff" "--shortstat" (str "master..." branch))
+                                  (.then (fn [shortstat-result]
+                                           {:diff-stat  (when (:ok diff-stat-result) (:output diff-stat-result))
+                                            :diff       (when (:ok diff-result) (:output diff-result))
+                                            :diff-stats (when (:ok shortstat-result)
+                                                          (parse-shortstat (:output shortstat-result)))}))))))))
         (.then (fn [diffs]
                  ;; Step 3: Checkout lab branch
                  (-> (git-exec repo "checkout" branch)
@@ -186,22 +219,31 @@
                                     (.then (fn [test-result]
                                              (-> (return-to-master repo)
                                                  (.then (fn [_]
-                                                          (str (:diff-stat diffs)
-                                                               "\n"
-                                                               (format-test-summary
-                                                                generation (:ok test-result)
-                                                                (:exit test-result) (:output test-result))
-                                                               "\n\nDiff:\n"
-                                                               (let [d (:diff diffs)]
-                                                                 (if (> (count d) 5000)
-                                                                   (str (subs d 0 5000) "\n... (truncated)")
-                                                                   d))))))))
+                                                          (let [test-counts (parse-test-counts
+                                                                             (:output test-result)
+                                                                             (:ok test-result))]
+                                                            ;; Store structured results for reports
+                                                            (reset! last-verification
+                                                                    {:generation  generation
+                                                                     :test-results test-counts
+                                                                     :diff-stats   (:diff-stats diffs)})
+                                                            (str (:diff-stat diffs)
+                                                                 "\n"
+                                                                 (format-test-summary
+                                                                  generation (:ok test-result)
+                                                                  (:exit test-result) (:output test-result))
+                                                                 "\n\nDiff:\n"
+                                                                 (let [d (:diff diffs)]
+                                                                   (if (> (count d) 5000)
+                                                                     (str (subs d 0 5000) "\n... (truncated)")
+                                                                     d)))))))))
                                     (.catch (fn [err]
                                               ;; Tests threw unexpectedly — still return to master
                                               (-> (return-to-master repo)
                                                   (.then (fn [_]
                                                            (str "Verification failed: unexpected error: "
                                                                 (.-message err)))))))))))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Tool definitions and registry
 ;; ---------------------------------------------------------------------------

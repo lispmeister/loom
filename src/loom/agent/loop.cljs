@@ -122,21 +122,31 @@ Work step by step. Read files before editing them. Run tests to verify your chan
     :max-tokens (:max-tokens agent)
     :on-event   on-event}))
 
+(defn- add-token-usage
+  "Accumulate token usage from a Claude API response into the running totals."
+  [totals response]
+  (if-let [usage (:token-usage response)]
+    {:input  (+ (:input totals 0) (:input usage 0))
+     :output (+ (:output totals 0) (:output usage 0))}
+    totals))
+
 (defn- tool-use-loop
   "Inner loop: send to Claude, dispatch tools, repeat until end_turn or max iterations.
-   Returns a promise resolving to {:agent <updated> :response <final-response>}."
-  [agent on-event iteration]
+   Returns a promise resolving to {:agent <updated> :response <final-response>
+   :token-usage {:input N :output N}}."
+  [agent on-event iteration token-usage]
   (-> (call-claude agent on-event)
       (.then
        (fn [response]
          (if (:error response)
            ;; API error — stop the loop
            (do (when on-event (on-event {:type :error :error response}))
-               {:agent agent :response response})
+               {:agent agent :response response :token-usage token-usage})
 
            (let [agent' (append-assistant-message agent response)
                  tool-calls (claude/extract-tool-calls response)
-                 text (claude/extract-text response)]
+                 text (claude/extract-text response)
+                 token-usage' (add-token-usage token-usage response)]
 
              ;; Emit text if present
              (when (and on-event (seq text))
@@ -147,7 +157,7 @@ Work step by step. Read files before editing them. Run tests to verify your chan
                ;; No tool calls or max iterations — done
                (do (when (and on-event (>= iteration max-iterations) (seq tool-calls))
                      (on-event {:type :warning :message "Max iterations reached, stopping"}))
-                   {:agent agent' :response response})
+                   {:agent agent' :response response :token-usage token-usage'})
 
                ;; Dispatch tools and loop
                (do (when on-event
@@ -165,7 +175,7 @@ Work step by step. Read files before editing them. Run tests to verify your chan
                           (let [agent'' (append-tool-results agent' results)]
                             ;; Pace API calls to stay under rate limits
                             (-> (delay-ms loop-delay-ms)
-                                (.then (fn [_] (tool-use-loop agent'' on-event (inc iteration)))))))))))))))))
+                                (.then (fn [_] (tool-use-loop agent'' on-event (inc iteration) token-usage'))))))))))))))))
 
 (defn run-turn
   "Run one conversational turn: append user message, enter the tool-use loop,
@@ -178,8 +188,9 @@ Work step by step. Read files before editing them. Run tests to verify your chan
      {:type :error :error {...}}
      {:type :warning :message \"...\"}
 
-   Returns a promise resolving to {:agent <updated> :response <final-response>}."
+   Returns a promise resolving to {:agent <updated> :response <final-response>
+   :token-usage {:input N :output N}}."
   [agent user-message & {:keys [on-event]}]
   (let [agent' (update agent :messages conj
                        {:role "user" :content user-message})]
-    (tool-use-loop agent' on-event 0)))
+    (tool-use-loop agent' on-event 0 {:input 0 :output 0})))

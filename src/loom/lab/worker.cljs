@@ -119,10 +119,11 @@ When done, ensure all changes are saved — they will be committed automatically
                    ;; Run the agentic loop with program.md as the task
                    (println (str "Program.md loaded (" (count program-md) " chars), starting agent loop..."))
                    (-> (loop/run-turn agent program-md :on-event on-event)
-                       (.then (fn [{:keys [response]}]
+                       (.then (fn [{:keys [response token-usage]}]
                                 (println (str "[response] stop_reason=" (:stop_reason response)
                                               " content_types="
-                                              (pr-str (mapv :type (:content response)))))
+                                              (pr-str (mapv :type (:content response)))
+                                              " tokens=" (pr-str token-usage)))
                                 ;; Commit all changes
                                 (-> (git-commit-all "Lab: completed task from program.md")
                                     (.then (fn [_]
@@ -132,7 +133,8 @@ When done, ensure all changes are saved — they will be committed automatically
                                                              (apply str))]
                                                (swap! state assoc
                                                       :status "done"
-                                                      :progress (or text "Task completed"))
+                                                      :progress (or text "Task completed")
+                                                      :token-usage token-usage)
                                                (println "Lab worker: task completed")))))))
                        (.catch (fn [err]
                                  (let [msg (str "Task failed: " (.-message err))]

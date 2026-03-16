@@ -104,7 +104,13 @@
                              result
                              (let [{:keys [status body headers]} result]
                                (if (<= 200 status 299)
-                                 (js->clj (js/JSON.parse body) :keywordize-keys true)
+                                 (let [parsed (js->clj (js/JSON.parse body) :keywordize-keys true)]
+                                   ;; Attach :token-usage from API response usage field
+                                   (if-let [usage (:usage parsed)]
+                                     (assoc parsed :token-usage
+                                            {:input  (:input_tokens usage 0)
+                                             :output (:output_tokens usage 0)})
+                                     parsed))
                                  (if (and (= 429 status) (pos? retries-left))
                                    (let [wait-ms (parse-retry-after (:retry-after headers))]
                                      (when on-event
