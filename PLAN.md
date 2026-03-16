@@ -4,7 +4,7 @@
 
 A self-modifying coding agent that can rewrite its own code, test modifications in isolated Lab containers, and promote successful changes — all in pure ClojureScript on Node.js.
 
-**Status:** MVP complete and stabilized. First self-modification cycle (gen-1) succeeded 2026-03-15. Pipeline hardened 2026-03-16: fixed 5 critical bugs (port allocation, release builds, API key injection, status polling, branch propagation), verified end-to-end with gen-10 and gen-11. Next: full Prime-driven generations to prove promote/rollback, then reflect loop. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
+**Status:** MVP phase complete. Pipeline proven stable with 5/5 successful generations (gen-13 through gen-17, 2026-03-16) — zero failures, zero timeouts, all branches propagated. Earlier hardening (2026-03-16) fixed 5 critical bugs. Next phase: close the recursive loop (reflect step). Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
 
 ---
 
@@ -129,7 +129,7 @@ The loop needs safety valves:
 - **Fitness tracking:** Each generation produces quantitative metrics (test count, code size, token usage, tool calls). Tracked in generation reports.
 - **Auto-refine on failure:** If a generation fails verification, reflect analyzes the failure and produces an improved program.md before retrying.
 
-Beads will be created after the next round of stability generations confirms the MVP pipeline is solid.
+**Prerequisite met:** MVP pipeline stable — 5/5 generations (gen-13 through gen-17) completed successfully with zero failures. Ready to implement.
 
 ---
 
