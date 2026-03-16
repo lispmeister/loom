@@ -102,18 +102,64 @@ Three problems to solve:
 - **Lab artifacts excluded via .gitignore** — `lab-worker.js` and `program.md` are written to workspace `.gitignore` during `setup-lab-repo` to prevent merge into main.
 - **Deterministic host ports** — Lab containers publish on port `18400 + gen-num` (e.g., gen-5 → `18405:8402`) to avoid collisions and allow direct debugging.
 
+## Critical Assessment (2026-03-16)
+
+### What Works
+
+The infrastructure is proven. Spawn → execute → detect → fetch → cleanup runs reliably (5/5 stable generations, gen-13 through gen-17, zero failures). The pipeline handles timeouts, port allocation, API key injection, branch propagation, and container lifecycle correctly.
+
+### What's Missing
+
+1. **No generation has modified agent code.** Every successful program.md has been a trivial file operation (add a comment, create a text file, count source files). Gen-1 (add line numbers to read_file) is the only one that touched agent functionality, and that was manually orchestrated. We haven't proven that a Lab can make a meaningful change to the agent and have Prime verify and promote it.
+
+2. **Prime has no agency.** It's a chatbot with tools. The user writes program.md, tells Prime to execute it, Prime mechanically spawns/verifies/promotes. There's no decision-making, no prioritization, no self-assessment.
+
+3. **Verification is shallow.** `verify_generation` runs `npm test` — that's it. No eval probes, no benchmarks, no code quality checks. For trivial tasks this is fine. For actual self-modification (rewrite the agentic loop) this is dangerously insufficient. A Lab could introduce a subtle regression that passes all 94 tests.
+
+4. **No fitness function.** Self-improvement requires measuring improvement. We track timing and outcome (done/failed/timeout) but not: test count, code coverage, token efficiency, tool call counts. Without quantitative metrics across generations, "improvement" is unmeasurable.
+
+5. **Reports are too thin.** `gen-N-report.json` has 7 fields. No token usage, no test results, no diff summary, no fitness score. The reflect step needs rich data to reason about what to do next.
+
+### Guidance Sources for the Reflect Step
+
+Prime needs input on *what's worth improving*. Options, in order of implementation priority:
+
+| Source | How | Status |
+|---|---|---|
+| **User priorities file** | `priorities.md` in repo, Prime reads before reflect | Not implemented |
+| **Beads integration** | Prime reads `beads list` output, picks highest P1/P2 | Beads exist, not wired to Prime |
+| **LLM self-review** | Prime reads its own source, asks "what's weakest?" | Not implemented, defer until fitness function exists |
+| **Conversation context** | User feedback from chat sessions persisted | Not implemented |
+
+Start with user priorities + beads, graduate to LLM self-review once fitness function is trusted.
+
+### Progress Documentation Gaps
+
+- **Per-generation metrics** — reports need token counts, test results, diff stats
+- **Fitness log** — append-only file tracking key metrics across generations, plottable over time
+- **Diff summaries** — what actually changed, stored alongside the report
+
 ## Next Milestone: Closing the Recursive Loop
 
 The MVP proves the pipeline works (human writes program.md → Lab executes → verify → promote/rollback). The next step is making it genuinely recursive: **Prime autonomously proposes and executes its own next improvement.**
+
+### Prerequisites Before Implementing Reflect
+
+These must be done first — without them the reflect loop won't have enough information to make good decisions:
+
+1. **Enrich generation reports** — add token counts, test pass/fail counts, diff stats, duration breakdown
+2. **Define the fitness function** — what metrics must improve? (test count, code coverage, token efficiency, or user-defined)
+3. **Create `priorities.md`** — user-authored file that Prime reads during reflect to know what to work on
 
 ### The Reflect Step
 
 After every promote or rollback, Prime enters a `reflect` phase:
 
-1. Analyze the generation report (what changed, outcome, timing)
-2. Review the current codebase state (test results, architecture gaps, metrics)
-3. Generate the next `program.md` — the single smallest change that most improves reliability, test coverage, or capability
-4. Spawn a new Lab and continue the loop
+1. Analyze the generation report (what changed, outcome, timing, metrics)
+2. Read `priorities.md` for user-directed goals
+3. Review the current codebase state (test results, architecture gaps, open beads)
+4. Generate the next `program.md` — the single smallest change that most improves the target metric
+5. Spawn a new Lab and continue the loop
 
 ### Stopping Conditions
 
@@ -126,10 +172,14 @@ The loop needs safety valves:
 ### What This Enables
 
 - **The compelling demo:** "I pointed it at itself and walked away. Here's what it improved."
-- **Fitness tracking:** Each generation produces quantitative metrics (test count, code size, token usage, tool calls). Tracked in generation reports.
+- **Fitness tracking:** Each generation produces quantitative metrics (test count, code size, token usage, tool calls). Tracked in generation reports and fitness log.
 - **Auto-refine on failure:** If a generation fails verification, reflect analyzes the failure and produces an improved program.md before retrying.
 
-**Prerequisite met:** MVP pipeline stable — 5/5 generations (gen-13 through gen-17) completed successfully with zero failures. Ready to implement.
+**Pipeline prerequisite met:** MVP pipeline stable — 5/5 generations (gen-13 through gen-17) completed successfully with zero failures.
+
+### Post-Recursion: Switch to Claude Code Token
+
+Once the reflect loop is working, migrate from direct Anthropic API calls to using the Claude Code token. This consolidates billing, removes the need for a separate `ANTHROPIC_API_KEY`, and aligns with the tool's intended usage model. Implement after recursion is proven stable.
 
 ---
 
