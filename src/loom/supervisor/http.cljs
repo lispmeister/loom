@@ -19,16 +19,17 @@
   (doseq [send-fn @sse-clients]
     (http/send-sse-event send-fn event-name data)))
 
-;; -- Lab timeout tracking --
+;; -- Lab lifecycle tracking --
 
-;; Map of generation-number to timeout-id for active Lab containers.
+;; Map of generation-number to {:timeout-id N :cancel-poll fn :lab-dir path} for active Labs.
 (defonce lab-timeouts (atom {}))
 
 (defn- cancel-lab-timeout
-  "Cancel the timeout for a generation, if one exists. Removes it from the atom."
+  "Cancel the timeout and polling for a generation. Removes it from the atom."
   [gen-num]
-  (when-let [timeout-id (get @lab-timeouts gen-num)]
-    (lab/cancel-timeout timeout-id)
+  (when-let [entry (get @lab-timeouts gen-num)]
+    (when (:timeout-id entry) (lab/cancel-timeout (:timeout-id entry)))
+    (when (:cancel-poll entry) ((:cancel-poll entry)))
     (swap! lab-timeouts dissoc gen-num)))
 
 ;; -- Dashboard HTML --
@@ -175,8 +176,10 @@
 
 (defn- handle-spawn
   "Handle POST /spawn. Clones the repo, creates a lab branch, writes program.md,
-   launches a Lab container, and starts a 5-minute timeout. On success, records
-   the generation as :in-progress. On failure, records it as :failed."
+   launches a Lab container, starts polling Lab /status, and sets a hard timeout.
+   On success, records the generation as :in-progress. When the Supervisor's poll
+   detects done/failed, it updates the generation, cancels the timeout, emits SSE,
+   and stops the container."
   [_state-atom config req]
   (let [body       (js->clj (http/read-json-body req) :keywordize-keys true)
         program-md (:program_md body)
@@ -188,7 +191,7 @@
         now        (.toISOString (js/Date.))
         hash       (sha256-short program-md)
         network    (:network config)
-        on-timeout (fn [timed-out-gen _container-name]
+        on-timeout (fn [timed-out-gen container-name]
                      (let [completed (.toISOString (js/Date.))
                            record    (find-generation config timed-out-gen)]
                        (gen/update-generation gens-path timed-out-gen
@@ -198,14 +201,57 @@
                        (swap! lab-timeouts dissoc timed-out-gen)
                        (emit-log "timeout" {:generation timed-out-gen
                                             :status "timeout"
-                                            :message "Lab killed after 5 minute timeout"})))]
+                                            :message (str "Lab " container-name " killed after timeout ("
+                                                          (:lab-timeout-ms config) "ms)")})))
+        on-lab-status (fn [status-map]
+                        (emit-log "lab-status" {:generation gen-num
+                                                :status (:status status-map)
+                                                :progress (:progress status-map)}))
+        on-lab-done (fn [final-status]
+                      ;; Lab reported done or failed — cancel timeout, update gen,
+                      ;; fetch branch into main repo, stop container
+                      (let [entry (get @lab-timeouts gen-num)]
+                        (cancel-lab-timeout gen-num)
+                        (let [lab-status (:status final-status)
+                              outcome    (if (= lab-status "done") :done :failed)
+                              completed  (.toISOString (js/Date.))
+                              record     (find-generation config gen-num)
+                              container-name (str "lab-gen-" gen-num)
+                              lab-dir    (:lab-dir entry)]
+                          (gen/update-generation gens-path gen-num
+                                                 {:outcome outcome :completed completed})
+                          (when record
+                            (save-report config gen-num record outcome))
+                          ;; Fetch Lab branch into main repo so verify/promote can find it
+                          (when (and lab-dir (= outcome :done))
+                            (-> (git/fetch-branch repo-path lab-dir branch)
+                                (.then (fn [result]
+                                         (if (:ok result)
+                                           (emit-log "fetch" {:generation gen-num :branch branch
+                                                              :status "ok"})
+                                           (emit-log "fetch" {:generation gen-num :branch branch
+                                                              :status "error"
+                                                              :error (:message result)}))))
+                                (.catch (fn [err]
+                                          (emit-log "fetch" {:generation gen-num :branch branch
+                                                             :status "error"
+                                                             :error (.-message err)})))))
+                          (emit-log "lab-done" {:generation gen-num
+                                                :status (name outcome)
+                                                :progress (:progress final-status)
+                                                :error (:error final-status)})
+                          ;; Stop container (best-effort) but keep workspace for verify
+                          (lab/cleanup-lab container-name))))]
     (save-program-md config gen-num program-md)
     (emit-log "spawn" {:generation gen-num :branch branch :status "starting"})
     (-> (lab/spawn-lab repo-path gen-num program-md
                        :network network
                        :image (or (:lab-image config) "loom-lab:latest")
                        :on-timeout on-timeout
-                       :lab-base-dir (:lab-base-dir config))
+                       :on-lab-status on-lab-status
+                       :on-lab-done on-lab-done
+                       :lab-base-dir (:lab-base-dir config)
+                       :timeout-ms (:lab-timeout-ms config))
         (.then (fn [result]
                  (if (:error result)
                    (do
@@ -222,8 +268,11 @@
                                         :error (:message result)})
                      (http/json-response 500 {:error (:message result)}))
                    (do
-                     ;; Track the timeout so promote/rollback can cancel it
-                     (swap! lab-timeouts assoc gen-num (:timeout-id result))
+                     ;; Track timeout + poll + lab-dir so callbacks can use them
+                     (swap! lab-timeouts assoc gen-num
+                            {:timeout-id (:timeout-id result)
+                             :cancel-poll (:cancel-poll result)
+                             :lab-dir (:lab-dir result)})
                      (gen/append-generation gens-path
                                             {:generation      gen-num
                                              :parent          parent-gen

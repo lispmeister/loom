@@ -6,6 +6,7 @@
   "scripts": {
     "supervisor": "shadow-cljs compile supervisor && node out/supervisor.js",
     "agent": "shadow-cljs compile agent && node out/agent.js",
+    "lab-worker": "shadow-cljs release lab-worker",
     "test": "shadow-cljs compile test",
     "watch:supervisor": "shadow-cljs watch supervisor",
     "watch:agent": "shadow-cljs watch agent",

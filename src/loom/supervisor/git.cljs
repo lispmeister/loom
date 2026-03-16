@@ -72,6 +72,14 @@
                             :output (str/trim (str stdout))})))]
        (.execFile child-process "git" (clj->js ["clone" source dest]) cb)))))
 
+(defn fetch-branch
+  "Fetch a branch from a local clone into this repo.
+   Creates/updates the local branch ref to match the clone's branch.
+   Example: (fetch-branch \"/main/repo\" \"/tmp/clone\" \"lab/gen-5\")
+   runs: git -C /main/repo fetch /tmp/clone lab/gen-5:lab/gen-5"
+  [cwd source-path branch-name]
+  (git cwd ["fetch" source-path (str branch-name ":" branch-name)]))
+
 (defn commit
   "Stage all and commit with message. Returns promise."
   [cwd message]

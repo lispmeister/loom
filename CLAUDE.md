@@ -18,6 +18,8 @@ beads close <id>     # close a completed issue
 
 Do NOT add task lists, backlogs, or checklists to PLAN.md, README.md, or any other markdown file. If work needs tracking, create a bead.
 
+**Bug tracking rule:** Create a bead immediately when a bug is detected (`--type bug`). Only close it once the fix is in place AND verified (tests pass, or the failing scenario is re-tested successfully). We use this history for later analysis of what broke and when.
+
 ## Fixed-Point Contracts
 
 DO NOT MODIFY the Malli schemas in `src/loom/shared/schemas.cljs` without explicit user approval. These are the eval protocol contracts (EvalRequest, EvalResponse). The self-modification cycle uses direct HTTP JSON payloads (POST /spawn, /promote, /rollback) documented in PLAN.md.
@@ -37,6 +39,30 @@ npm run watch:test
 # Compile and run components
 npm run supervisor
 npm run agent
+
+# Build lab-worker (MUST use release for self-contained bundle)
+npx shadow-cljs release lab-worker
+```
+
+### Environment Setup
+
+Create a `.env` file in the project root (if it doesn't exist):
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...your-key-here...
+```
+
+Important: The supervisor must be started with this env loaded — it passes the API key to Lab containers at spawn time.
+Always source .env before running:
+
+```bash
+set -a && source .env && set +a
+node out/supervisor.js
+```
+
+Or use a one-liner:
+```bash
+env $(cat .env | xargs) node out/supervisor.js
 ```
 
 ## Code Style

@@ -1,8 +1,9 @@
 (ns loom.supervisor.lab
   "Lab container orchestration: clone repo, set up branch, write program.md,
-   launch container with volume mount."
+   launch container with volume mount, poll Lab status."
   (:require [loom.supervisor.git :as git]
             [loom.supervisor.container :as container]
+            [loom.shared.http-client :as client]
             [clojure.string :as str]))
 
 (def ^:private fs (js/require "node:fs"))
@@ -106,6 +107,49 @@
     (catch :default e
       (js/console.warn "Failed to write generation report:" (.-message e)))))
 
+;; ---------------------------------------------------------------------------
+;; Lab status polling
+;; ---------------------------------------------------------------------------
+
+(def ^:private poll-interval-ms
+  "How often the Supervisor polls a Lab container's /status endpoint."
+  5000)
+
+(defn poll-lab-status
+  "Poll a Lab container's /status endpoint every poll-interval-ms.
+   Calls on-status with the parsed status map on every successful poll.
+   Calls on-done with the final status when the Lab reports 'done' or 'failed'.
+   Stops polling on done/failed or when the returned cancel-fn is called.
+   Returns a cancel function."
+  [host-port on-status on-done]
+  (let [cancelled  (atom false)
+        status-url (str "http://localhost:" host-port "/status")
+        poll-fn    (atom nil)
+        do-poll    (fn []
+                     (when-not @cancelled
+                       (-> (client/get-json status-url :timeout 3000)
+                           (.catch (fn [_] {:error true :message "connection refused"}))
+                           (.then (fn [result]
+                                    (when-not @cancelled
+                                      (let [http-err? (true? (:error result))
+                                            status (when-not http-err? (:status result))]
+                                        (when-not http-err?
+                                          (on-status result))
+                                        (cond
+                                          (= status "done")   (on-done result)
+                                          (= status "failed") (on-done result)
+                                          ;; Still running or not ready — poll again
+                                          :else (js/setTimeout @poll-fn poll-interval-ms)))))))))]
+    (reset! poll-fn do-poll)
+    ;; Start first poll after a short delay for container boot
+    (js/setTimeout do-poll 2000)
+    ;; Return cancel function
+    (fn [] (reset! cancelled true))))
+
+;; ---------------------------------------------------------------------------
+;; Container lifecycle
+;; ---------------------------------------------------------------------------
+
 (defn cleanup-lab
   "Stop and remove a Lab container. Best-effort, never rejects."
   [container-name]
@@ -132,32 +176,50 @@
 
 (defn spawn-lab
   "Full Lab spawn: clone repo, set up branch, write program.md, run container.
+   Starts polling Lab /status immediately after container launch.
    Returns a promise resolving to:
      {:ok true :container-name <string> :lab-dir <path> :branch <string>
-      :host-port <int> :timeout-id <int>}
+      :host-port <int> :timeout-id <int> :cancel-poll <fn>}
    or {:error true :message <string>}.
 
    Options:
-     :worker-path — path to compiled lab-worker.js (default: out/lab-worker.js)
-     :on-timeout  — callback (fn [gen-num container-name]) called on 5-min timeout"
+     :worker-path   — path to compiled lab-worker.js (default: out/lab-worker.js)
+     :on-timeout    — (fn [gen-num container-name]) called when hard timeout fires
+     :on-lab-status — (fn [status-map]) called on each successful poll
+     :on-lab-done   — (fn [final-status]) called when Lab reports done/failed
+     :timeout-ms    — hard timeout in ms (default: 600000 = 10 min)"
   [source-repo-path gen-num program-md
-   & {:keys [image network env-vars container-port on-timeout worker-path lab-base-dir]
+   & {:keys [image network env-vars container-port on-timeout on-lab-status on-lab-done
+             worker-path lab-base-dir timeout-ms]
       :or {image "loom-lab:latest"
            container-port 8402
            on-timeout (fn [_gen-num _container-name])
-           worker-path "out/lab-worker.js"}}]
-  ;; Validate build artifact exists before spawning
-  (if-not (.existsSync fs worker-path)
+           on-lab-status (fn [_status])
+           on-lab-done (fn [_status])
+           worker-path "out/lab-worker.js"
+           timeout-ms 600000}}]
+  ;; Pre-flight checks
+  (cond
+    (not (.existsSync fs worker-path))
     (js/Promise.resolve
      {:error true
       :message (str "Build artifact missing: " worker-path
-                    ". Run 'npm run lab' or 'npx shadow-cljs compile lab-worker' first.")})
+                    ". Run 'npx shadow-cljs release lab-worker' first.")})
+
+    (nil? (.-ANTHROPIC_API_KEY (.-env js/process)))
+    (js/Promise.resolve
+     {:error true
+      :message "ANTHROPIC_API_KEY not set in supervisor environment. Source .env before starting."})
+
+    :else
     (let [branch         (str "lab/gen-" gen-num)
           container-name (str "lab-gen-" gen-num)
           ;; Inject ANTHROPIC_API_KEY from Supervisor's env into Lab
           api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
           lab-env        (cond-> {:PORT (str container-port)}
-                           api-key (assoc :ANTHROPIC_API_KEY api-key))]
+                           api-key (assoc :ANTHROPIC_API_KEY api-key))
+          ;; Host port: offset from a base to avoid collisions across concurrent Labs
+          host-port      (+ 18400 gen-num)]
       (-> (setup-lab-repo source-repo-path branch program-md :base-dir lab-base-dir)
           (.then (fn [result]
                    (if (:error result)
@@ -166,11 +228,11 @@
                            copy-result (copy-worker-js worker-path lab-dir)]
                        (if (:error copy-result)
                          copy-result
-                         (let [publish-spec (str "0:" container-port)]
+                         (let [publish-spec (str host-port ":" container-port)]
                            (-> (container/run
                                 container-name image
                                 ["node" "/workspace/lab-worker.js"]
-                              ;; Dual-attach: default for internet, custom for container DNS
+                                ;; Dual-attach: default for internet, custom for container DNS
                                 :networks (if network
                                             ["default" network]
                                             ["default"])
@@ -181,21 +243,24 @@
                                (.then (fn [run-result]
                                         (if (:error run-result)
                                           run-result
-                                        ;; Get the actual host port
-                                          (-> (container/published-port container-name container-port)
-                                              (.then (fn [host-port]
-                                                     ;; Start 5-minute timeout
-                                                       (let [timeout-id (js/setTimeout
-                                                                         (fn []
-                                                                           (on-timeout gen-num container-name)
-                                                                           (cleanup-lab container-name))
-                                                                         300000)]
-                                                         {:ok true
-                                                          :container-name container-name
-                                                          :container-id (:container-id run-result)
-                                                          :lab-dir lab-dir
-                                                          :branch branch
-                                                          :host-port host-port
-                                                          :timeout-id timeout-id}))))))))))))))
+                                          ;; Start polling + hard timeout
+                                          (let [cancel-poll (poll-lab-status
+                                                             host-port
+                                                             on-lab-status
+                                                             on-lab-done)
+                                                timeout-id (js/setTimeout
+                                                            (fn []
+                                                              (cancel-poll)
+                                                              (on-timeout gen-num container-name)
+                                                              (cleanup-lab container-name))
+                                                            timeout-ms)]
+                                            {:ok true
+                                             :container-name container-name
+                                             :container-id (:container-id run-result)
+                                             :lab-dir lab-dir
+                                             :branch branch
+                                             :host-port host-port
+                                             :timeout-id timeout-id
+                                             :cancel-poll cancel-poll})))))))))))
           (.catch (fn [err]
                     {:error true :message (str "Spawn failed: " (.-message err))}))))))

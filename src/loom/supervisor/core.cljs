@@ -29,10 +29,13 @@
         gens-path  (.join path-mod tmp-dir "generations.edn")
         network    (or (.-LOOM_NETWORK (.-env js/process)) "loom-net")
         lab-dir    (.join path-mod tmp-dir "labs")
+        timeout-ms (let [t (.-LOOM_LAB_TIMEOUT_MS (.-env js/process))]
+                     (if t (js/parseInt t 10) 600000))
         config     {:repo-path        repo-path
                     :generations-path gens-path
                     :network          network
-                    :lab-base-dir     lab-dir}]
+                    :lab-base-dir     lab-dir
+                    :lab-timeout-ms   timeout-ms}]
     (ensure-generations-file gens-path)
     (println "Loom supervisor starting...")
     (-> (container/cli-available?)

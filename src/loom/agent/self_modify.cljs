@@ -12,7 +12,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:dynamic poll-interval-ms 5000)
-(def ^:dynamic poll-timeout-ms  300000)  ;; 5 minutes
+(def ^:dynamic poll-timeout-ms  600000)  ;; 10 minutes
 
 (defn- poll-until-done
   "Poll a Lab /status URL every poll-interval-ms until status is done/failed

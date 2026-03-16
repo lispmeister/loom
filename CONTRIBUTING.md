@@ -39,8 +39,8 @@ npm run supervisor
 # Prime agent (runs in container or locally)
 npm run agent
 
-# Lab worker (compiled for container use)
-npx shadow-cljs compile lab-worker
+# Lab worker (release build — must be self-contained for containers)
+npx shadow-cljs release lab-worker
 ```
 
 ## Environment Variables
@@ -74,7 +74,7 @@ npx shadow-cljs compile lab-worker
 
 2. **Build everything:**
    ```bash
-   npx shadow-cljs compile supervisor agent lab-worker
+   npx shadow-cljs compile supervisor agent && npx shadow-cljs release lab-worker
    ```
 
 3. **Start Supervisor** (terminal 1):
