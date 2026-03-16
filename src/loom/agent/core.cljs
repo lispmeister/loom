@@ -2,6 +2,7 @@
   "Prime container entry point. Starts the HTTP server and runs the agentic loop."
   (:require [loom.agent.loop :as loop]
             [loom.agent.http :as agent-http]
+            [loom.agent.cli :as cli]
             [loom.shared.http :as http]))
 
 (defonce state
@@ -49,10 +50,8 @@
                   (agent-http/emit-log "error" {:message msg})
                   msg)))))
 
-(defn main
-  "Prime agent entry point. Reads ANTHROPIC_API_KEY and LOOM_MODEL from env,
-   creates the agentic loop, starts the HTTP server on PORT (default 8401),
-   and traps SIGINT/SIGTERM for graceful shutdown."
+(defn- start-server
+  "Start the HTTP server and agentic loop."
   []
   (let [api-key (.-ANTHROPIC_API_KEY (.-env js/process))
         model   (or (.-LOOM_MODEL (.-env js/process)) "claude-sonnet-4-20250514")
@@ -77,3 +76,9 @@
                      (println (str "Loom Prime listening on port "
                                    (http/server-port server)))
                      (println (str "Model: " model)))))))))
+
+(defn main
+  "Prime agent entry point. Dispatches CLI commands or starts HTTP server."
+  []
+  (when (= :serve (cli/dispatch))
+    (start-server)))
