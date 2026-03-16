@@ -192,7 +192,7 @@ npm run supervisor
 
 - VS Code + [Calva](https://calva.io/) for REPL-connected editing
 - Watch mode: `npm run watch:test` for continuous test compilation
-- Task tracking: `beads list` to see open work
+- Task tracking: `bd list` to see open work
 
 ## References
 
