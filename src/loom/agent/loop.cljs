@@ -21,7 +21,7 @@ Work step by step. Read files before editing them. Run tests to verify your chan
 
 (def ^:private max-iterations
   "Maximum tool-use loop iterations per turn to prevent runaway."
-  25)
+  40)
 
 (def ^:dynamic max-context-messages
   "Maximum number of messages to keep in conversation history.
