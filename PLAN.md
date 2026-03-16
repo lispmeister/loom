@@ -116,9 +116,9 @@ The infrastructure is proven. Spawn → execute → detect → fetch → cleanup
 
 3. **Verification is shallow.** `verify_generation` runs `npm test` — that's it. No eval probes, no benchmarks, no code quality checks. For trivial tasks this is fine. For actual self-modification (rewrite the agentic loop) this is dangerously insufficient. A Lab could introduce a subtle regression that passes all 94 tests.
 
-4. **No fitness function.** Self-improvement requires measuring improvement. We track timing and outcome (done/failed/timeout) but not: test count, code coverage, token efficiency, tool call counts. Without quantitative metrics across generations, "improvement" is unmeasurable.
+4. ~~**No fitness function.**~~ **Fitness function defined** (see below). Metrics: test health, token efficiency, diff impact.
 
-5. **Reports are too thin.** `gen-N-report.json` has 7 fields. No token usage, no test results, no diff summary, no fitness score. The reflect step needs rich data to reason about what to do next.
+5. ~~**Reports are too thin.**~~ **Reports enriched** as of gen-18. Now includes: token-usage (input/output), test results (tests-run, assertions, failures, errors, passed?), diff stats (files-changed, insertions, deletions).
 
 ### Guidance Sources for the Reflect Step
 
@@ -133,11 +133,11 @@ Prime needs input on *what's worth improving*. Options, in order of implementati
 
 Start with user priorities + beads, graduate to LLM self-review once fitness function is trusted.
 
-### Progress Documentation Gaps
+### Progress Documentation
 
-- **Per-generation metrics** — reports need token counts, test results, diff stats
-- **Fitness log** — append-only file tracking key metrics across generations, plottable over time
-- **Diff summaries** — what actually changed, stored alongside the report
+- ~~**Per-generation metrics**~~ — Done: reports include token counts, test results, diff stats (as of gen-18)
+- **Fitness log** — append-only file tracking key metrics across generations, plottable over time (not yet implemented)
+- ~~**Diff summaries**~~ — Done: diff stats in reports
 
 ## Next Milestone: Closing the Recursive Loop
 
@@ -145,11 +145,32 @@ The MVP proves the pipeline works (human writes program.md → Lab executes → 
 
 ### Prerequisites Before Implementing Reflect
 
-These must be done first — without them the reflect loop won't have enough information to make good decisions:
-
-1. **Enrich generation reports** — add token counts, test pass/fail counts, diff stats, duration breakdown
-2. **Define the fitness function** — what metrics must improve? (test count, code coverage, token efficiency, or user-defined)
+1. ~~**Enrich generation reports**~~ — Done (gen-18+). Reports now include token-usage, test-results, diff-stats.
+2. ~~**Define the fitness function**~~ — Done. See below.
 3. **Create `priorities.md`** — user-authored file that Prime reads during reflect to know what to work on
+
+### Fitness Function
+
+A generation is "better" if it improves the target metric without regressing safety constraints.
+
+**Safety constraints (must not regress):**
+- All tests pass (`failures == 0 && errors == 0`)
+- Test count does not decrease (`tests-run >= previous tests-run`)
+
+**Improvement metrics (higher = better):**
+
+| Metric | How measured | Why it matters |
+|---|---|---|
+| Test count | `tests-run` from verify_generation | More tests = more verified behavior |
+| Assertion count | `assertions` from verify_generation | Depth of testing |
+| Token efficiency | `(input + output) / generation` | Lower cost per improvement cycle |
+
+**Fitness score** (v0, simple weighted sum):
+```
+score = (tests-run * 10) + (assertions * 1) - (total-tokens / 1000)
+```
+
+A generation is promotable if: safety constraints hold AND score >= previous score (or user overrides via priorities.md). The score formula is intentionally simple — we'll refine it once we have data from 10+ reflect-loop generations.
 
 ### The Reflect Step
 
