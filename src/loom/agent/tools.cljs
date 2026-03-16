@@ -54,16 +54,15 @@
                      num-lines (count lines)
                      width (count (str num-lines))
                      numbered-lines (map-indexed
-                                      (fn [idx line]
-                                        (let [line-num (inc idx)
-                                              padded-num (str/replace
-                                                           (str (str/join (repeat width " ")) line-num)
-                                                           #" +(.+)$"
-                                                           "$1")]
-                                          (str padded-num "	" line)))
-                                      lines)]
-                 (str/join "
-" numbered-lines))))
+                                     (fn [idx line]
+                                       (let [line-num (inc idx)
+                                             padded-num (str/replace
+                                                         (str (str/join (repeat width " ")) line-num)
+                                                         #" +(.+)$"
+                                                         "$1")]
+                                         (str padded-num "\t" line)))
+                                     lines)]
+                 (str/join "\n" numbered-lines))))
       (.catch (fn [err]
                 (str "Error reading " path ": " (.-message err))))))
 
@@ -83,13 +82,14 @@
          (resolve (str "Error writing " path ": " (.-message err))))))))
 
 (defn edit-file
-  "Replace first occurrence of old-string with new-string in a file.
-   Returns confirmation or error if old-string not found."
-  [{:keys [path old-string new-string]}]
+  "Replace first occurrence of old_string with new_string in a file.
+   Returns confirmation or error if old_string not found.
+   Note: keys use underscores to match Claude API JSON convention."
+  [{:keys [path old_string new_string]}]
   (-> (.readFile fsp path "utf8")
       (.then (fn [content]
-               (if (str/includes? content old-string)
-                 (let [updated (.replace content old-string new-string)]
+               (if (str/includes? content old_string)
+                 (let [updated (.replace content old_string new_string)]
                    (-> (.writeFile fsp path updated "utf8")
                        (.then (fn [_] (str "Edited " path ": replaced 1 occurrence")))))
                  (str "Error: old_string not found in " path))))

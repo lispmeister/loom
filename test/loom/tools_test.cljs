@@ -85,7 +85,7 @@
            (let [dir (make-tmpdir)
                  fp  (.join node-path dir "edit.txt")]
              (.writeFileSync fs fp "foo bar baz")
-             (-> (tools/edit-file {:path fp :old-string "bar" :new-string "qux"})
+             (-> (tools/edit-file {:path fp :old_string "bar" :new_string "qux"})
                  (.then (fn [result]
                           (is (re-find #"replaced" result))
                           (let [contents (.readFileSync fs fp "utf8")]
@@ -99,7 +99,7 @@
            (let [dir (make-tmpdir)
                  fp  (.join node-path dir "edit2.txt")]
              (.writeFileSync fs fp "hello world")
-             (-> (tools/edit-file {:path fp :old-string "xyz" :new-string "abc"})
+             (-> (tools/edit-file {:path fp :old_string "xyz" :new_string "abc"})
                  (.then (fn [result]
                           (is (re-find #"not found" result))
                           (cleanup-tmpdir dir)
