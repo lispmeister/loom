@@ -21,7 +21,8 @@ Host (macOS 26, Apple Silicon)
 ├── Prime Container
 │   ├── Agent loop + Claude API client
 │   ├── Tools: read-file, write-file, edit-file, bash, spawn_lab,
-│   │         check_lab_status, verify_generation, promote_generation
+│   │         verify_generation, promote_generation, rollback_generation,
+│   │         reflect_and_propose
 │   └── HTTP dashboard + chat endpoint (:8401)
 └── Lab Container (ephemeral)
     ├── Autonomous agent (reads program.md, implements task)
@@ -42,31 +43,41 @@ Both Prime and Lab are autonomous agents that call the Claude API (Anthropic). T
 
 Labs cannot spawn other Labs or promote themselves — `agent/self_modify.cljs` is excluded from the `lab-worker` build target.
 
-### Model Configuration
+### Environment Variables
 
-Prime and Lab models are configured independently via environment variables on the **host**, set before starting the Supervisor.
+All configuration lives in `.env` (gitignored). Copy `env-template` to get started:
 
-| Variable | Read by | Purpose |
-|---|---|---|
-| `LOOM_MODEL` | Prime (directly), Lab (forwarded by Supervisor) | Model for Prime; also Lab fallback if `LOOM_LAB_MODEL` is not set |
-| `LOOM_LAB_MODEL` | Supervisor (forwarded to Lab as `LOOM_MODEL`) | Override model for Lab containers only |
+```bash
+cp env-template .env
+# Edit .env with your API keys
+```
 
-**Precedence chain:**
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes | — | API key for Prime (and Lab fallback) |
+| `LOOM_MODEL` | No | `claude-sonnet-4-20250514` | Model for Prime agent |
+| `LOOM_LAB_API_KEY` | No | Falls back to `ANTHROPIC_API_KEY` | Separate API key for Lab containers |
+| `LOOM_LAB_API_BASE` | No | `https://api.anthropic.com` | Base URL for Lab API (Anthropic-compatible) |
+| `LOOM_LAB_MODEL` | No | Falls back to `LOOM_MODEL` | Model override for Lab containers |
+| `LOOM_LAB_TIMEOUT_MS` | No | `300000` (5 min) | Max Lab generation runtime (Supervisor hard-kill + Prime polling) |
+| `LOOM_REPO_PATH` | No | `.` | Repo path managed by the Supervisor |
+| `LOOM_NETWORK` | No | `loom-net` | Container network name |
 
-- **Prime** reads `LOOM_MODEL` from its own env → falls back to `claude-sonnet-4-20250514`
-- **Lab** reads `LOOM_MODEL` from its container env → falls back to `claude-haiku-4-5-20251001`
-- **Supervisor** forwards into each Lab container: `LOOM_LAB_MODEL` if set, otherwise `LOOM_MODEL`, otherwise nothing (Lab uses its built-in default)
+**Model precedence:**
+
+- **Prime** reads `LOOM_MODEL` → falls back to `claude-sonnet-4-20250514`
+- **Lab** receives `LOOM_LAB_MODEL` if set, otherwise `LOOM_MODEL`, otherwise uses its built-in default (`claude-haiku-4-5-20251001`)
 
 ```bash
 # Default behavior: Sonnet for Prime, Haiku for Lab
-source .env  # ANTHROPIC_API_KEY
+set -a && source .env && set +a
 npm run supervisor
 
 # Use Sonnet for both Prime and Lab
 LOOM_MODEL=claude-sonnet-4-20250514 npm run supervisor
 
 # Sonnet for Prime, specific model for Lab
-LOOM_MODEL=claude-sonnet-4-20250514 LOOM_LAB_MODEL=claude-haiku-4-5-20251001 npm run supervisor
+LOOM_LAB_MODEL=claude-haiku-4-5-20251001 npm run supervisor
 ```
 
 ## Tech Stack

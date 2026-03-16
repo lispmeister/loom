@@ -15,7 +15,9 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:dynamic poll-interval-ms 5000)
-(def ^:dynamic poll-timeout-ms  600000)  ;; 10 minutes
+(def ^:dynamic poll-timeout-ms
+  (let [t (some-> js/process .-env .-LOOM_LAB_TIMEOUT_MS)]
+    (if t (js/parseInt t 10) 300000)))
 
 (defn- poll-until-done
   "Poll a Lab /status URL every poll-interval-ms until status is done/failed

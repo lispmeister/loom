@@ -22,7 +22,7 @@ A self-modifying coding agent that can rewrite its own code, test modifications 
 2. Prime constructs the complete container environment: full repo clone on a `lab/gen-N` branch with `program.md` included.
 3. Supervisor creates the Lab container on the `loom-net` network. Boot auto-starts the research task — no explicit "go" signal.
 4. Prime polls `http://lab-gen-N:PORT/status` (with connect-retry for readiness) to monitor progress.
-5. Supervisor enforces a hard timeout per Lab run (`LOOM_LAB_TIMEOUT_MS`, default 10 min).
+5. Supervisor enforces a hard timeout per Lab run (`LOOM_LAB_TIMEOUT_MS`, default 5 min).
 6. When Lab reports done (or times out), Prime independently verifies: pulls the Lab's branch, runs tests, sends eval probes, checks benchmarks — per `program.md` criteria. (Trust but verify: Lab runs its own tests AND Prime checks independently.)
 7. **Promote:** Merge `lab/gen-N` into `main`, tag `gen-N`, serialize Prime state, restart Prime with new code.
 8. **Rollback:** Discard `lab/gen-N`. On failure, Prime retries with same `program.md` (v0). Auto-refine (Prime analyzes failure and improves `program.md` before retry) planned for post-v0.
@@ -201,6 +201,29 @@ The loop needs safety valves:
 ### Post-Recursion: Switch to Claude Code Token
 
 Once the reflect loop is working, migrate from direct Anthropic API calls to using the Claude Code token. This consolidates billing, removes the need for a separate `ANTHROPIC_API_KEY`, and aligns with the tool's intended usage model. Implement after recursion is proven stable.
+
+---
+
+## Developer Workflow Friction
+
+### The Problem
+
+The codebase itself doesn't shell out to Bash for core operations — the supervisor calls the `container` CLI via `execFile`, HTTP is native Node, file I/O uses `node:fs`. The friction is in **manual testing and dev workflow**:
+
+1. **Running one-off CLJS functions from the terminal** — shadow-cljs compiles to node-script targets that auto-execute `main`. There's no way to call `reflect-and-propose` or any individual tool without starting the full agent HTTP server as a side effect.
+2. **Polling loops in zsh** — zsh reserves `$status` (alias for `$?`), shell quoting issues, empty output from dead containers causes silent infinite loops.
+3. **Env sourcing before every command** — `set -a && source .env && set +a` required before any supervisor or agent invocation.
+
+### Solutions (in implementation order)
+
+**Option 3: CLI entry point for individual tools (do first)**
+Add a CLI mode to the agent build: `node out/agent.js reflect`, `node out/agent.js spawn "program.md"`, `node out/agent.js poll 30`. Detects argv to run a single tool function and exit, bypassing the HTTP server. No new dependencies, directly addresses the "can't call one function" problem.
+
+**Option 1: Babashka task runner for dev commands (deferred)**
+Add `bb.edn` with tasks like `bb reflect`, `bb spawn`, `bb poll`, `bb supervisor`. Babashka as a dev-time convenience layer only — NOT a production component. The codebase stays pure ClojureScript/Node. Adds a dev dependency but is more ergonomic than raw shell for multi-step workflows.
+
+**Option 2: REPL-friendly dev build target (deferred)**
+Add a `:dev` or `:node-repl` shadow-cljs build target for interactive CLJS evaluation. Standard Clojure workflow — connect Calva or nREPL, call any function directly. Requires a running REPL session.
 
 ---
 

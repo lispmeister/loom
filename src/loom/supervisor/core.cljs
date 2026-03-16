@@ -30,7 +30,7 @@
         network    (or (.-LOOM_NETWORK (.-env js/process)) "loom-net")
         lab-dir    (.join path-mod tmp-dir "labs")
         timeout-ms (let [t (.-LOOM_LAB_TIMEOUT_MS (.-env js/process))]
-                     (if t (js/parseInt t 10) 600000))
+                     (if t (js/parseInt t 10) 300000))
         config     {:repo-path        repo-path
                     :generations-path gens-path
                     :network          network

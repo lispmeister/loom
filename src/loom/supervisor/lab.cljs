@@ -197,7 +197,7 @@
            on-lab-status (fn [_status])
            on-lab-done (fn [_status])
            worker-path "out/lab-worker.js"
-           timeout-ms 600000}}]
+           timeout-ms 300000}}]
   ;; Pre-flight checks
   (cond
     (not (.existsSync fs worker-path))

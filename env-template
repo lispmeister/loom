@@ -1,0 +1,38 @@
+# Loom environment configuration
+# Copy to .env and fill in your values:  cp env-template .env
+# Source before starting the supervisor:  set -a && source .env && set +a
+
+# --- Required ---
+
+# Anthropic API key for Prime (and Lab fallback if LOOM_LAB_API_KEY is not set)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# --- Lab LLM provider (optional, overrides Anthropic for Labs) ---
+
+# Separate API key for Lab containers (e.g. Minimax, other Anthropic-compatible provider)
+# LOOM_LAB_API_KEY=
+
+# Base URL for Lab API (Anthropic-compatible endpoint)
+# LOOM_LAB_API_BASE=https://api.minimax.io/anthropic
+
+# Model override for Lab containers (forwarded as LOOM_MODEL inside the container)
+# LOOM_LAB_MODEL=MiniMax-M2.5
+
+# --- Model selection ---
+
+# Model for Prime agent (default: claude-sonnet-4-20250514)
+# LOOM_MODEL=claude-sonnet-4-20250514
+
+# --- Timeouts ---
+
+# Max time a Lab generation can run, in ms (default: 300000 = 5 min)
+# Applied to both Supervisor hard-kill and Prime polling timeout
+LOOM_LAB_TIMEOUT_MS=300000
+
+# --- Supervisor options (rarely changed) ---
+
+# Path to the repo the Supervisor manages (default: current directory)
+# LOOM_REPO_PATH=.
+
+# Docker/container network name (default: loom-net)
+# LOOM_NETWORK=loom-net

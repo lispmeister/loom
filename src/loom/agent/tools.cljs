@@ -6,7 +6,8 @@
             ["node:path" :as node-path]
             ["node:child_process" :as cp]
             [clojure.string :as str]
-            [loom.agent.self-modify :as self-modify]))
+            [loom.agent.self-modify :as self-modify]
+            [loom.agent.reflect :as reflect]))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool definitions for the Claude API
@@ -131,9 +132,11 @@
    "bash"       bash})
 
 (def tool-definitions
-  "All tool definitions: core + self-modify."
-  (into base-tool-definitions self-modify/tool-definitions))
+  "All tool definitions: core + self-modify + reflect."
+  (-> base-tool-definitions
+      (into self-modify/tool-definitions)
+      (into reflect/tool-definitions)))
 
 (def registry
-  "All tools: core + self-modify."
-  (merge base-registry self-modify/registry))
+  "All tools: core + self-modify + reflect."
+  (merge base-registry self-modify/registry reflect/registry))
