@@ -227,6 +227,41 @@ Add a `:dev` or `:node-repl` shadow-cljs build target for interactive CLJS evalu
 
 ---
 
+## Session Learnings (2026-03-16)
+
+### Lab Read-Only Bug (loom-bjd) — Root Cause & Fix
+
+Labs consistently failed with "Agent completed but made no file changes" across both Minimax M2.5 and Haiku (gens 30–38). Investigation via `container logs` revealed the Lab spent all 25 iterations reading files and never writing.
+
+**Root cause (two factors):**
+
+1. **Tool pollution.** Labs received all 9 tools including `spawn_lab`, `verify_generation`, `reflect_and_propose` — tools they can't use. The LLM saw these tools, got confused about its role, and defaulted to passive analysis.
+2. **Passive system prompt.** "Read files before editing. Make minimal, focused changes." encouraged over-reading.
+
+**Fix:**
+- Per-agent tool filtering: `create-agent` now accepts `:tool-definitions` and `:tool-registry`. Labs receive only 4 base tools (read_file, write_file, edit_file, bash).
+- Lab system prompt rewritten: emphasizes "LIMITED number of tool calls", "START WRITING immediately", explicit 4-step workflow.
+- Max iterations raised from 25 to 40 (configurable via `LOOM_MAX_ITERATIONS`).
+
+**Result:** Gen-39 succeeded immediately after the fix — first success after 5+ consecutive failures.
+
+### Reflect Step Validation (Sub-phase B)
+
+Three manual reflect cycles confirmed:
+- Priorities from `priorities.md` are correctly incorporated into proposals
+- After a rollback, reflect narrows scope and changes approach
+- Bootstrap case (no history) produces reasonable first task
+
+### Autonomous Loop (Sub-phase C)
+
+Implemented and unit-tested (12 tests). Stopping conditions: generation cap, token budget, plateau detection, SIGINT. Fitness log persists as append-only JSONL. End-to-end validation (C.4) still pending.
+
+### Dev Workflow
+
+CLI entry point (`node out/agent.js <command>`) eliminated the main friction point — individual tools callable without starting HTTP server. Babashka and REPL dev target deferred.
+
+---
+
 ## Not in v0
 
 - Streaming from Claude API
