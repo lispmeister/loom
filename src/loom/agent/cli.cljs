@@ -11,6 +11,7 @@
      serve                                 — start HTTP server (default)"
   (:require [loom.agent.reflect :as reflect]
             [loom.agent.self-modify :as sm]
+            [loom.agent.autonomous :as auto]
             ["node:fs" :as fs]
             ["node:process" :as process]))
 
@@ -85,23 +86,38 @@
           (.then (fn [result] (exit 0 result)))
           (.catch (fn [err] (exit 1 (str "Error: " (.-message err)))))))))
 
+(defn- run-autonomous
+  "Run the autonomous improvement loop."
+  [argv]
+  (let [lookback (js/parseInt (parse-flag argv "--lookback" "5") 10)
+        repo     (parse-flag argv "--repo" ".")]
+    (-> (auto/run-loop {:repo repo :lookback lookback})
+        (.then (fn [summary]
+                 (exit 0 (str "Loop finished: " (:stop-reason summary)))))
+        (.catch (fn [err]
+                  (exit 1 (str "Error: " (.-message err))))))))
+
 (def usage-text
   "Loom Agent CLI
 
 Usage: node out/agent.js <command> [args...]
 
 Commands:
-  reflect  [--lookback N] [--repo PATH]  Propose next program.md via LLM
-  spawn    <program.md-path>             Spawn Lab with program.md file
-  verify   <generation> [--repo PATH]    Verify a generation (run tests, diff)
-  promote  <generation>                  Promote a generation to main
-  rollback <generation>                  Rollback a generation
+  reflect    [--lookback N] [--repo PATH]  Propose next program.md via LLM
+  spawn      <program.md-path>           Spawn Lab with program.md file
+  verify     <generation> [--repo PATH]  Verify a generation (run tests, diff)
+  promote    <generation>                Promote a generation to main
+  rollback   <generation>                Rollback a generation
+  autonomous [--lookback N] [--repo PATH] Run reflect-spawn-verify loop
   serve                                  Start HTTP server (default)
 
 Environment:
-  ANTHROPIC_API_KEY   Required for reflect/serve
-  LOOM_MODEL          Model for Prime (default: claude-sonnet-4-20250514)
-  LOOM_LAB_TIMEOUT_MS Poll timeout in ms (default: 300000)")
+  ANTHROPIC_API_KEY      Required for reflect/serve/autonomous
+  LOOM_MODEL             Model for Prime (default: claude-sonnet-4-20250514)
+  LOOM_LAB_TIMEOUT_MS    Poll timeout in ms (default: 300000)
+  LOOM_MAX_GENERATIONS   Max generations for autonomous loop (default: 5)
+  LOOM_TOKEN_BUDGET      Max cumulative tokens, 0=unlimited (default: 0)
+  LOOM_PLATEAU_WINDOW    Stop after N generations without improvement (default: 3)")
 
 (defn dispatch
   "Parse process.argv and dispatch to the appropriate command.
@@ -111,11 +127,12 @@ Environment:
         cmd    (first argv)
         rest   (vec (rest argv))]
     (case cmd
-      "reflect"  (do (run-reflect rest) :cli)
-      "spawn"    (do (run-spawn rest) :cli)
-      "verify"   (do (run-verify rest) :cli)
-      "promote"  (do (run-promote rest) :cli)
-      "rollback" (do (run-rollback rest) :cli)
+      "reflect"    (do (run-reflect rest) :cli)
+      "spawn"      (do (run-spawn rest) :cli)
+      "verify"     (do (run-verify rest) :cli)
+      "promote"    (do (run-promote rest) :cli)
+      "rollback"   (do (run-rollback rest) :cli)
+      "autonomous" (do (run-autonomous rest) :cli)
       "help"     (do (exit 0 usage-text) :cli)
       "--help"   (do (exit 0 usage-text) :cli)
       "-h"       (do (exit 0 usage-text) :cli)

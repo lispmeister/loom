@@ -33,6 +33,17 @@ LOOM_LAB_TIMEOUT_MS=300000
 # Forwarded to Lab containers by the Supervisor
 LOOM_MAX_ITERATIONS=40
 
+# --- Autonomous loop ---
+
+# Max generations for the autonomous loop (default: 5, 0=unlimited)
+LOOM_MAX_GENERATIONS=5
+
+# Max cumulative tokens across all generations, 0=unlimited (default: 0)
+# LOOM_TOKEN_BUDGET=0
+
+# Stop after N promoted generations without fitness improvement (default: 3)
+# LOOM_PLATEAU_WINDOW=3
+
 # --- Supervisor options (rarely changed) ---
 
 # Path to the repo the Supervisor manages (default: current directory)

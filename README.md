@@ -61,6 +61,9 @@ cp env-template .env
 | `LOOM_LAB_MODEL` | No | Falls back to `LOOM_MODEL` | Model override for Lab containers |
 | `LOOM_LAB_TIMEOUT_MS` | No | `300000` (5 min) | Max Lab generation runtime (Supervisor hard-kill + Prime polling) |
 | `LOOM_MAX_ITERATIONS` | No | `40` | Max tool-use loop iterations per turn (forwarded to Labs) |
+| `LOOM_MAX_GENERATIONS` | No | `5` | Max generations for autonomous loop (0=unlimited) |
+| `LOOM_TOKEN_BUDGET` | No | `0` (unlimited) | Max cumulative tokens for autonomous loop |
+| `LOOM_PLATEAU_WINDOW` | No | `3` | Stop after N promoted gens without fitness improvement |
 | `LOOM_REPO_PATH` | No | `.` | Repo path managed by the Supervisor |
 | `LOOM_NETWORK` | No | `loom-net` | Container network name |
 
