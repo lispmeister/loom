@@ -29,6 +29,46 @@ Host (macOS 26, Apple Silicon)
     └── Commits to lab/gen-N branch
 ```
 
+## LLM Usage
+
+Both Prime and Lab are autonomous agents that call the Claude API (Anthropic). They share the same API client code (`agent/claude.cljs`) but run with different configurations:
+
+| | Prime | Lab |
+|---|---|---|
+| **Default model** | `claude-sonnet-4-20250514` | `claude-haiku-4-5-20251001` |
+| **Tools** | Full set + self-modification (spawn, verify, promote, rollback) | Base tools only (read, write, edit, bash) |
+| **Interaction** | Multi-turn conversation, up to 20 messages in context | Single turn — program.md in, committed code out |
+| **Loop** | Tool-use loop, up to 25 iterations per turn | Same tool-use loop, same iteration cap |
+
+Labs cannot spawn other Labs or promote themselves — `agent/self_modify.cljs` is excluded from the `lab-worker` build target.
+
+### Model Configuration
+
+Prime and Lab models are configured independently via environment variables on the **host**, set before starting the Supervisor.
+
+| Variable | Read by | Purpose |
+|---|---|---|
+| `LOOM_MODEL` | Prime (directly), Lab (forwarded by Supervisor) | Model for Prime; also Lab fallback if `LOOM_LAB_MODEL` is not set |
+| `LOOM_LAB_MODEL` | Supervisor (forwarded to Lab as `LOOM_MODEL`) | Override model for Lab containers only |
+
+**Precedence chain:**
+
+- **Prime** reads `LOOM_MODEL` from its own env → falls back to `claude-sonnet-4-20250514`
+- **Lab** reads `LOOM_MODEL` from its container env → falls back to `claude-haiku-4-5-20251001`
+- **Supervisor** forwards into each Lab container: `LOOM_LAB_MODEL` if set, otherwise `LOOM_MODEL`, otherwise nothing (Lab uses its built-in default)
+
+```bash
+# Default behavior: Sonnet for Prime, Haiku for Lab
+source .env  # ANTHROPIC_API_KEY
+npm run supervisor
+
+# Use Sonnet for both Prime and Lab
+LOOM_MODEL=claude-sonnet-4-20250514 npm run supervisor
+
+# Sonnet for Prime, specific model for Lab
+LOOM_MODEL=claude-sonnet-4-20250514 LOOM_LAB_MODEL=claude-haiku-4-5-20251001 npm run supervisor
+```
+
 ## Tech Stack
 
 | Component | Technology |

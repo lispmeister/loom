@@ -4,7 +4,7 @@
 
 A self-modifying coding agent that can rewrite its own code, test modifications in isolated Lab containers, and promote successful changes — all in pure ClojureScript on Node.js.
 
-**Status:** MVP complete. First self-modification cycle (gen-1) succeeded 2026-03-15. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
+**Status:** MVP complete and stabilized. First self-modification cycle (gen-1) succeeded 2026-03-15. Pipeline hardened 2026-03-16: fixed 5 critical bugs (port allocation, release builds, API key injection, status polling, branch propagation), verified end-to-end with gen-10 and gen-11. Next: full Prime-driven generations to prove promote/rollback, then reflect loop. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
 
 ---
 
@@ -22,7 +22,7 @@ A self-modifying coding agent that can rewrite its own code, test modifications 
 2. Prime constructs the complete container environment: full repo clone on a `lab/gen-N` branch with `program.md` included.
 3. Supervisor creates the Lab container on the `loom-net` network. Boot auto-starts the research task — no explicit "go" signal.
 4. Prime polls `http://lab-gen-N:PORT/status` (with connect-retry for readiness) to monitor progress.
-5. Supervisor enforces a hard timeout of 5 minutes per Lab run.
+5. Supervisor enforces a hard timeout per Lab run (`LOOM_LAB_TIMEOUT_MS`, default 10 min).
 6. When Lab reports done (or times out), Prime independently verifies: pulls the Lab's branch, runs tests, sends eval probes, checks benchmarks — per `program.md` criteria. (Trust but verify: Lab runs its own tests AND Prime checks independently.)
 7. **Promote:** Merge `lab/gen-N` into `main`, tag `gen-N`, serialize Prime state, restart Prime with new code.
 8. **Rollback:** Discard `lab/gen-N`. On failure, Prime retries with same `program.md` (v0). Auto-refine (Prime analyzes failure and improves `program.md` before retry) planned for post-v0.
@@ -100,7 +100,7 @@ Three problems to solve:
 - **Labs cannot self-test** — Shadow-cljs compilation takes ~25s inside the container VM, leaving insufficient time within the 5-min timeout. Labs must NOT run `npm test` or any compilation commands. Prime's `verify_generation` tool runs tests host-side after the Lab reports done.
 - **Tailscale VPN breaks containers** — Apple Containerization vmnet routing fails with Tailscale active. Disconnect before running Labs, then `container system stop && container system start`.
 - **Lab artifacts excluded via .gitignore** — `lab-worker.js` and `program.md` are written to workspace `.gitignore` during `setup-lab-repo` to prevent merge into main.
-- **Dynamic host ports** — Lab containers publish `0:8402` (dynamic host port) to avoid collisions on sequential spawns.
+- **Deterministic host ports** — Lab containers publish on port `18400 + gen-num` (e.g., gen-5 → `18405:8402`) to avoid collisions and allow direct debugging.
 
 ## Next Milestone: Closing the Recursive Loop
 

@@ -216,8 +216,12 @@
           container-name (str "lab-gen-" gen-num)
           ;; Inject ANTHROPIC_API_KEY from Supervisor's env into Lab
           api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
+          ;; Forward Lab model: LOOM_LAB_MODEL takes precedence, falls back to LOOM_MODEL
+          lab-model      (or (.-LOOM_LAB_MODEL (.-env js/process))
+                             (.-LOOM_MODEL (.-env js/process)))
           lab-env        (cond-> {:PORT (str container-port)}
-                           api-key (assoc :ANTHROPIC_API_KEY api-key))
+                           api-key   (assoc :ANTHROPIC_API_KEY api-key)
+                           lab-model (assoc :LOOM_MODEL lab-model))
           ;; Host port: offset from a base to avoid collisions across concurrent Labs
           host-port      (+ 18400 gen-num)]
       (-> (setup-lab-repo source-repo-path branch program-md :base-dir lab-base-dir)
