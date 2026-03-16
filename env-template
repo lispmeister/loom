@@ -23,11 +23,15 @@ ANTHROPIC_API_KEY=sk-ant-...
 # Model for Prime agent (default: claude-sonnet-4-20250514)
 # LOOM_MODEL=claude-sonnet-4-20250514
 
-# --- Timeouts ---
+# --- Timeouts and limits ---
 
 # Max time a Lab generation can run, in ms (default: 300000 = 5 min)
 # Applied to both Supervisor hard-kill and Prime polling timeout
 LOOM_LAB_TIMEOUT_MS=300000
+
+# Max tool-use loop iterations per turn (default: 40)
+# Forwarded to Lab containers by the Supervisor
+LOOM_MAX_ITERATIONS=40
 
 # --- Supervisor options (rarely changed) ---
 

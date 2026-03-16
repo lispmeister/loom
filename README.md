@@ -60,6 +60,7 @@ cp env-template .env
 | `LOOM_LAB_API_BASE` | No | `https://api.anthropic.com` | Base URL for Lab API (Anthropic-compatible) |
 | `LOOM_LAB_MODEL` | No | Falls back to `LOOM_MODEL` | Model override for Lab containers |
 | `LOOM_LAB_TIMEOUT_MS` | No | `300000` (5 min) | Max Lab generation runtime (Supervisor hard-kill + Prime polling) |
+| `LOOM_MAX_ITERATIONS` | No | `40` | Max tool-use loop iterations per turn (forwarded to Labs) |
 | `LOOM_REPO_PATH` | No | `.` | Repo path managed by the Supervisor |
 | `LOOM_NETWORK` | No | `loom-net` | Container network name |
 

@@ -19,9 +19,11 @@ Workflow for self-modification:
 
 Work step by step. Read files before editing them. Run tests to verify your changes.")
 
-(def ^:private max-iterations
-  "Maximum tool-use loop iterations per turn to prevent runaway."
-  40)
+(def ^:dynamic max-iterations
+  "Maximum tool-use loop iterations per turn to prevent runaway.
+   Override via LOOM_MAX_ITERATIONS env var."
+  (let [env-val (some-> js/process .-env .-LOOM_MAX_ITERATIONS)]
+    (if env-val (js/parseInt env-val 10) 40)))
 
 (def ^:dynamic max-context-messages
   "Maximum number of messages to keep in conversation history.

@@ -225,10 +225,12 @@
           ;; Forward Lab model: LOOM_LAB_MODEL takes precedence, falls back to LOOM_MODEL
           lab-model      (or (.-LOOM_LAB_MODEL (.-env js/process))
                              (.-LOOM_MODEL (.-env js/process)))
+          max-iter       (.-LOOM_MAX_ITERATIONS (.-env js/process))
           lab-env        (cond-> {:PORT (str container-port)}
                            api-key   (assoc :ANTHROPIC_API_KEY api-key)
                            api-base  (assoc :ANTHROPIC_API_BASE api-base)
-                           lab-model (assoc :LOOM_MODEL lab-model))
+                           lab-model (assoc :LOOM_MODEL lab-model)
+                           max-iter  (assoc :LOOM_MAX_ITERATIONS max-iter))
           ;; Host port: offset from a base to avoid collisions across concurrent Labs
           host-port      (+ 18400 gen-num)]
       (-> (setup-lab-repo source-repo-path branch program-md :base-dir lab-base-dir)
