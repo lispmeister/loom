@@ -1,9 +1,11 @@
 (ns loom.self-modify-test
-  "Tests for self-modify tools: spawn_lab (with built-in polling), promote, rollback.
+  "Tests for self-modify tools: spawn_lab (with built-in polling), promote, rollback,
+   and LLM-powered verification.
    Uses a real HTTP server to mock Supervisor/Lab responses."
   (:require [cljs.test :refer [deftest async is testing]]
             [loom.shared.http :as http]
-            [loom.agent.self-modify :as sm]))
+            [loom.agent.self-modify :as sm]
+            [loom.agent.claude :as claude]))
 
 ;; ---------------------------------------------------------------------------
 ;; Helper: mock server with dynamic route handlers
@@ -174,3 +176,77 @@
              (.catch (fn [err]
                        (is false (str "Unexpected error: " err))
                        (done))))))
+
+;; ---------------------------------------------------------------------------
+;; LLM verification tests (Sub-phase A)
+;; ---------------------------------------------------------------------------
+
+;; Access private fns via namespace lookup
+(def ^:private parse-verdict #'sm/parse-verdict)
+(def ^:private build-review-prompt #'sm/build-review-prompt)
+
+(deftest parse-verdict-valid-json-test
+  (testing "parses a valid JSON verdict"
+    (let [v (parse-verdict "{\"approved\": true, \"issues\": [], \"confidence\": \"high\", \"summary\": \"All good\"}")]
+      (is (true? (:approved v)))
+      (is (= [] (:issues v)))
+      (is (= :high (:confidence v)))
+      (is (= "All good" (:summary v))))))
+
+(deftest parse-verdict-with-code-fences-test
+  (testing "strips markdown code fences"
+    (let [v (parse-verdict "```json\n{\"approved\": false, \"issues\": [\"Missing edit\"], \"confidence\": \"medium\", \"summary\": \"Incomplete\"}\n```")]
+      (is (false? (:approved v)))
+      (is (= ["Missing edit"] (:issues v)))
+      (is (= :medium (:confidence v))))))
+
+(deftest parse-verdict-invalid-json-test
+  (testing "returns rejection on invalid JSON"
+    (let [v (parse-verdict "This is not JSON")]
+      (is (false? (:approved v)))
+      (is (= :low (:confidence v)))
+      (is (seq (:issues v))))))
+
+(deftest parse-verdict-missing-fields-test
+  (testing "handles missing optional fields with defaults"
+    (let [v (parse-verdict "{\"approved\": true}")]
+      (is (true? (:approved v)))
+      (is (= [] (:issues v)))
+      (is (= :low (:confidence v)))
+      (is (= "" (:summary v))))))
+
+(deftest build-review-prompt-structure-test
+  (testing "builds prompt with system and user messages"
+    (let [prompt (build-review-prompt "diff content" "program content")]
+      (is (string? (:system prompt)))
+      (is (= 1 (count (:messages prompt))))
+      (is (= "user" (:role (first (:messages prompt)))))
+      (is (re-find #"program content" (:content (first (:messages prompt)))))
+      (is (re-find #"diff content" (:content (first (:messages prompt))))))))
+
+(deftest build-review-prompt-truncates-long-diff-test
+  (testing "truncates diffs longer than 8000 chars"
+    (let [long-diff (apply str (repeat 9000 "x"))
+          prompt (build-review-prompt long-diff "task")]
+      (is (re-find #"truncated" (:content (first (:messages prompt))))))))
+
+(deftest llm-review-no-api-key-test
+  (testing "returns rejection when no API key is set"
+    (async done
+           (let [original-key (.. js/process -env -ANTHROPIC_API_KEY)]
+             ;; Temporarily clear the key
+             (js-delete (.-env js/process) "ANTHROPIC_API_KEY")
+             (-> (sm/llm-review-diff "some diff" "some program")
+                 (.then (fn [verdict]
+                          (is (false? (:approved verdict)))
+                          (is (= :low (:confidence verdict)))
+                          (is (re-find #"No ANTHROPIC_API_KEY" (first (:issues verdict))))
+                          ;; Restore key
+                          (when original-key
+                            (aset (.-env js/process) "ANTHROPIC_API_KEY" original-key))
+                          (done)))
+                 (.catch (fn [err]
+                           (when original-key
+                             (aset (.-env js/process) "ANTHROPIC_API_KEY" original-key))
+                           (is false (str "Unexpected error: " err))
+                           (done))))))))

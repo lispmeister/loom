@@ -1,7 +1,10 @@
 (ns loom.agent.self-modify
   "Self-modification tools for Prime: spawn Labs, poll status, promote/rollback."
   (:require [clojure.string :as str]
-            [loom.shared.http-client :as client]))
+            [loom.shared.http-client :as client]
+            [loom.agent.claude :as claude]
+            ["node:fs" :as fs]
+            ["node:path" :as path]))
 
 (def ^:dynamic supervisor-url
   (or (some-> js/process .-env .-LOOM_SUPERVISOR_URL)
@@ -55,6 +58,10 @@
                        (fn [] (resolve (poll-until-done status-url start-time)))
                        poll-interval-ms)))))))))
 
+;; Atom to store the last verification result for reports.
+;; Defined early because promote/rollback read it to include in reports.
+(defonce last-verification (atom nil))
+
 ;; ---------------------------------------------------------------------------
 ;; Tool implementations
 ;; ---------------------------------------------------------------------------
@@ -82,29 +89,37 @@
 
 (defn promote-generation
   "Promote a Lab generation: merge branch into main, tag, delete branch.
-   POSTs to Supervisor /promote."
+   POSTs to Supervisor /promote. Includes verification data from last-verification
+   atom so the report contains test-results, diff-stats, and LLM verdict."
   [{:keys [generation]}]
-  (-> (client/post-json (str supervisor-url "/promote")
-                        {:generation generation})
-      (.then (fn [result]
-               (if (:error result)
-                 (str "Error promoting generation " generation ": "
-                      (or (:message result) (pr-str result)))
-                 (str "Generation " generation " promoted successfully.\n"
-                      "Status: " (:status result)))))))
+  (let [verification @last-verification
+        body (cond-> {:generation generation}
+               (and verification (= generation (:generation verification)))
+               (assoc :verification (dissoc verification :generation)))]
+    (-> (client/post-json (str supervisor-url "/promote") body)
+        (.then (fn [result]
+                 (if (:error result)
+                   (str "Error promoting generation " generation ": "
+                        (or (:message result) (pr-str result)))
+                   (str "Generation " generation " promoted successfully.\n"
+                        "Status: " (:status result))))))))
 
 (defn rollback-generation
   "Rollback a Lab generation: discard branch, mark as failed.
-   POSTs to Supervisor /rollback."
+   POSTs to Supervisor /rollback. Includes verification data so the report
+   records why the generation was rejected."
   [{:keys [generation]}]
-  (-> (client/post-json (str supervisor-url "/rollback")
-                        {:generation generation})
-      (.then (fn [result]
-               (if (:error result)
-                 (str "Error rolling back generation " generation ": "
-                      (or (:message result) (pr-str result)))
-                 (str "Generation " generation " rolled back.\n"
-                      "Status: " (:status result)))))))
+  (let [verification @last-verification
+        body (cond-> {:generation generation}
+               (and verification (= generation (:generation verification)))
+               (assoc :verification (dissoc verification :generation)))]
+    (-> (client/post-json (str supervisor-url "/rollback") body)
+        (.then (fn [result]
+                 (if (:error result)
+                   (str "Error rolling back generation " generation ": "
+                        (or (:message result) (pr-str result)))
+                   (str "Generation " generation " rolled back.\n"
+                        "Status: " (:status result))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; verify-generation helpers
@@ -171,9 +186,6 @@
            (str "\nFull output (last 50 lines):\n"
                 (->> lines (take-last 50) (str/join "\n")))))))
 
-;; Atom to store the last verification result for reports
-(defonce last-verification (atom nil))
-
 (defn- parse-shortstat
   "Parse git diff --shortstat output into {:files-changed N :insertions N :deletions N}."
   [output]
@@ -184,6 +196,113 @@
         dels  (if-let [m (re-find #"(\d+) deletions?" output)]
                 (js/parseInt (nth m 1) 10) 0)]
     {:files-changed files :insertions ins :deletions dels}))
+
+;; ---------------------------------------------------------------------------
+;; LLM-powered verification (Sub-phase A)
+;; ---------------------------------------------------------------------------
+
+(defn- load-program-md
+  "Load programs/gen-N.md from the programs directory.
+   Returns the program text or nil if not found."
+  [repo generation]
+  (let [programs-dir (.join path (.dirname path
+                                           (.join path repo "tmp" "generations.edn"))
+                            "programs")
+        filepath (.join path programs-dir (str "gen-" generation ".md"))]
+    (try
+      (.readFileSync fs filepath "utf8")
+      (catch :default _e nil))))
+
+(defn- build-review-prompt
+  "Build the system + user messages for LLM diff review.
+   The reviewer checks whether the diff completely and correctly implements
+   the program.md contract."
+  [diff program-md]
+  {:system "You are a code reviewer for the Loom self-modification system.
+Your job is to verify whether a Lab's code changes completely and correctly
+implement the task described in program.md.
+
+You MUST respond with valid JSON matching this schema:
+{\"approved\": boolean,
+ \"issues\": [\"description of each issue\"],
+ \"confidence\": \"high\" | \"medium\" | \"low\",
+ \"summary\": \"one sentence summary of your assessment\"}
+
+Be strict. Check for:
+- Completeness: did the Lab address ALL requirements in program.md?
+- Correctness: are the changes logically correct?
+- Missing edits: are there locations that should have been changed but weren't?
+- Regressions: do the changes break existing behavior?
+
+If the diff is empty or trivially cosmetic (whitespace, comments only), reject it."
+   :messages [{:role "user"
+               :content (str "## program.md (task spec)\n\n"
+                             program-md
+                             "\n\n## Diff (changes made by Lab)\n\n```\n"
+                             (if (> (count diff) 8000)
+                               (str (subs diff 0 8000) "\n... (truncated)")
+                               diff)
+                             "\n```\n\n"
+                             "Does this diff completely and correctly implement the program.md task? "
+                             "Respond with JSON only.")}]})
+
+(defn- parse-verdict
+  "Parse the LLM's JSON verdict. Returns the verdict map or a fallback on parse failure.
+   Verdict: {:approved bool :issues [str] :confidence :high/:medium/:low :summary str}"
+  [response-text]
+  (try
+    (let [;; Strip markdown code fences if present
+          cleaned (-> response-text
+                      (str/replace #"^```json?\s*" "")
+                      (str/replace #"\s*```\s*$" "")
+                      str/trim)
+          parsed  (js->clj (js/JSON.parse cleaned) :keywordize-keys true)]
+      {:approved   (boolean (:approved parsed))
+       :issues     (vec (or (:issues parsed) []))
+       :confidence (keyword (or (:confidence parsed) "low"))
+       :summary    (or (:summary parsed) "")})
+    (catch :default _e
+      {:approved   false
+       :issues     [(str "Failed to parse LLM verdict: " response-text)]
+       :confidence :low
+       :summary    "Verdict parse failure — treating as rejection"})))
+
+(defn- llm-review-diff
+  "Send a diff + program.md to Claude for code review.
+   Returns a promise resolving to a verdict map:
+   {:approved bool :issues [str] :confidence :high/:medium/:low :summary str}
+   On API error, returns a rejection verdict with the error as an issue."
+  [diff program-md]
+  (let [api-key (.. js/process -env -ANTHROPIC_API_KEY)
+        model   (or (.. js/process -env -LOOM_MODEL)
+                    "claude-sonnet-4-20250514")
+        {:keys [system messages]} (build-review-prompt diff program-md)]
+    (if-not api-key
+      (js/Promise.resolve
+       {:approved   false
+        :issues     ["No ANTHROPIC_API_KEY set — cannot perform LLM review"]
+        :confidence :low
+        :summary    "Skipped: no API key"})
+      (-> (claude/send-message
+           {:api-key    api-key
+            :model      model
+            :system     system
+            :messages   messages
+            :max-tokens 1024})
+          (.then (fn [response]
+                   (if (:error response)
+                     {:approved   false
+                      :issues     [(str "LLM review API error: "
+                                        (or (:message response) (:body response)))]
+                      :confidence :low
+                      :summary    "API error — treating as rejection"}
+                     (let [text (claude/extract-text response)]
+                       (parse-verdict text)))))
+          (.catch (fn [err]
+                    {:approved   false
+                     :issues     [(str "LLM review exception: " (.-message err))]
+                     :confidence :low
+                     :summary    "Exception — treating as rejection"}))))))
 
 (defn verify-generation
   "Independently verify a Lab generation's work: get diff, checkout branch,
@@ -221,22 +340,54 @@
                                                  (.then (fn [_]
                                                           (let [test-counts (parse-test-counts
                                                                              (:output test-result)
-                                                                             (:ok test-result))]
-                                                            ;; Store structured results for reports
-                                                            (reset! last-verification
-                                                                    {:generation  generation
-                                                                     :test-results test-counts
-                                                                     :diff-stats   (:diff-stats diffs)})
-                                                            (str (:diff-stat diffs)
-                                                                 "\n"
-                                                                 (format-test-summary
-                                                                  generation (:ok test-result)
-                                                                  (:exit test-result) (:output test-result))
-                                                                 "\n\nDiff:\n"
-                                                                 (let [d (:diff diffs)]
-                                                                   (if (> (count d) 5000)
-                                                                     (str (subs d 0 5000) "\n... (truncated)")
-                                                                     d)))))))))
+                                                                             (:ok test-result))
+                                                                program-md (load-program-md repo generation)
+                                                                diff-text  (or (:diff diffs) "")
+                                                                test-summary (format-test-summary
+                                                                              generation (:ok test-result)
+                                                                              (:exit test-result) (:output test-result))
+                                                                base-result (str (:diff-stat diffs) "\n"
+                                                                                 test-summary
+                                                                                 "\n\nDiff:\n"
+                                                                                 (let [d diff-text]
+                                                                                   (if (> (count d) 5000)
+                                                                                     (str (subs d 0 5000) "\n... (truncated)")
+                                                                                     d)))]
+                                                            ;; If tests failed, skip LLM review
+                                                            (if-not (:ok test-result)
+                                                              (do
+                                                                (reset! last-verification
+                                                                        {:generation   generation
+                                                                         :test-results test-counts
+                                                                         :diff-stats   (:diff-stats diffs)})
+                                                                base-result)
+                                                              ;; Tests passed — run LLM review
+                                                              (if-not program-md
+                                                                (do
+                                                                  (reset! last-verification
+                                                                          {:generation   generation
+                                                                           :test-results test-counts
+                                                                           :diff-stats   (:diff-stats diffs)
+                                                                           :llm-verdict  {:approved false
+                                                                                          :issues ["program.md not found — cannot review"]
+                                                                                          :confidence :low
+                                                                                          :summary "Skipped: program.md not found"}})
+                                                                  (str base-result "\n\nLLM Review: SKIPPED (program.md not found)"))
+                                                                (-> (llm-review-diff diff-text program-md)
+                                                                    (.then (fn [verdict]
+                                                                             (reset! last-verification
+                                                                                     {:generation   generation
+                                                                                      :test-results test-counts
+                                                                                      :diff-stats   (:diff-stats diffs)
+                                                                                      :llm-verdict  verdict})
+                                                                             (str base-result
+                                                                                  "\n\nLLM Review: "
+                                                                                  (if (:approved verdict) "APPROVED" "REJECTED")
+                                                                                  " (confidence: " (name (:confidence verdict)) ")"
+                                                                                  "\nSummary: " (:summary verdict)
+                                                                                  (when (seq (:issues verdict))
+                                                                                    (str "\nIssues:\n"
+                                                                                         (str/join "\n" (map #(str "  - " %) (:issues verdict)))))))))))))))))
                                     (.catch (fn [err]
                                               ;; Tests threw unexpectedly — still return to master
                                               (-> (return-to-master repo)

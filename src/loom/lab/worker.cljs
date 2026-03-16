@@ -22,15 +22,28 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- git-commit-all
-  "Stage all changes and commit. Returns promise of {:ok true} or {:error ...}."
+  "Stage all changes and commit. Returns promise of:
+   {:ok true :output ...}       — committed successfully
+   {:nothing-to-commit true}    — no changes were staged
+   {:error true :message ...}   — git error"
   [message]
   (js/Promise.
    (fn [resolve _]
      (.exec cp (str "git add -A && git commit -m " (js/JSON.stringify message))
             #js {:cwd "/workspace" :timeout 30000}
             (fn [err stdout stderr]
-              (if (and err (not= 1 (.-code err)))
+              (cond
+                ;; Exit code 1 with "nothing to commit" means no changes
+                (and err (= 1 (.-code err))
+                     (re-find #"nothing to commit" (str stdout stderr)))
+                (resolve {:nothing-to-commit true})
+
+                ;; Other errors are real failures
+                err
                 (resolve {:error true :message (str stderr)})
+
+                ;; Success
+                :else
                 (resolve {:ok true :output (str stdout)})))))))
 
 ;; ---------------------------------------------------------------------------
@@ -126,16 +139,34 @@ When done, ensure all changes are saved — they will be committed automatically
                                               " tokens=" (pr-str token-usage)))
                                 ;; Commit all changes
                                 (-> (git-commit-all "Lab: completed task from program.md")
-                                    (.then (fn [_]
+                                    (.then (fn [commit-result]
                                              (let [text (->> (:content response)
                                                              (filter #(= "text" (:type %)))
                                                              (map :text)
                                                              (apply str))]
-                                               (swap! state assoc
-                                                      :status "done"
-                                                      :progress (or text "Task completed")
-                                                      :token-usage token-usage)
-                                               (println "Lab worker: task completed")))))))
+                                               (cond
+                                                 (:nothing-to-commit commit-result)
+                                                 (do (println "Lab worker: no changes to commit — task failed")
+                                                     (swap! state assoc
+                                                            :status "failed"
+                                                            :error "Agent completed but made no file changes"
+                                                            :progress (or text "")
+                                                            :token-usage token-usage))
+
+                                                 (:error commit-result)
+                                                 (do (println (str "Lab worker: git commit failed: " (:message commit-result)))
+                                                     (swap! state assoc
+                                                            :status "failed"
+                                                            :error (str "Git commit failed: " (:message commit-result))
+                                                            :progress (or text "")
+                                                            :token-usage token-usage))
+
+                                                 :else
+                                                 (do (println "Lab worker: task completed, changes committed")
+                                                     (swap! state assoc
+                                                            :status "done"
+                                                            :progress (or text "Task completed")
+                                                            :token-usage token-usage)))))))))
                        (.catch (fn [err]
                                  (let [msg (str "Task failed: " (.-message err))]
                                    (println msg)

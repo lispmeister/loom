@@ -312,7 +312,8 @@
     (if (nil? record)
       (js/Promise.resolve
        (http/json-response 404 {:error (str "Generation " gen-num " not found")}))
-      (let [branch (:branch record)]
+      (let [branch       (:branch record)
+            verification (:verification body)]
         (-> (git/checkout repo-path "master")
             (.then (fn [result]
                      (if (:error result)
@@ -333,7 +334,9 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :promoted :completed now})
-                         (save-report config gen-num record :promoted)
+                         (save-report config gen-num record :promoted
+                                      :extra-data (when verification
+                                                    {:verification verification}))
                          (cleanup-lab-workspace config gen-num)
                          (emit-log "promote" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
@@ -354,7 +357,8 @@
     (if (nil? record)
       (js/Promise.resolve
        (http/json-response 404 {:error (str "Generation " gen-num " not found")}))
-      (let [branch (:branch record)]
+      (let [branch       (:branch record)
+            verification (:verification body)]
         ;; Need to be on a different branch before deleting
         (-> (git/checkout repo-path "master")
             (.then (fn [_]
@@ -365,7 +369,9 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :failed :completed now})
-                         (save-report config gen-num record :failed)
+                         (save-report config gen-num record :failed
+                                      :extra-data (when verification
+                                                    {:verification verification}))
                          (cleanup-lab-workspace config gen-num)
                          (emit-log "rollback" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
