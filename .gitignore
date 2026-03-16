@@ -20,3 +20,4 @@ generations.edn
 
 # Runtime data (lab workspaces, generations, programs)
 tmp/
+.beads/.beads-credential-key
