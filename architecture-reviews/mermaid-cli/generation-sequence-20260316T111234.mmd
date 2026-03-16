@@ -1,0 +1,63 @@
+sequenceDiagram
+    actor User
+    participant Prime as Prime<br/>(Agent)
+    participant Supervisor as Supervisor<br/>(Host)
+    participant Lab as Lab<br/>(Container)
+
+    rect rgb(234, 242, 248)
+        Note over User,Lab: Phase 1 — Task Definition
+        User->>Prime: Define task in program.md
+        Note right of Prime: Drafts program.md<br/>with acceptance criteria<br/>and success conditions
+    end
+
+    rect rgb(244, 236, 247)
+        Note over User,Lab: Phase 2 — Lab Spawn
+        Prime->>+Supervisor: POST /spawn {program_md}
+        Note right of Supervisor: 1. Clone repo to tmp/labs/<br/>2. Create lab/gen-N branch<br/>3. Write program.md + .gitignore<br/>4. Copy lab-worker.js (release build)<br/>5. Validate ANTHROPIC_API_KEY present
+        Supervisor->>Lab: container run lab-gen-N<br/>--publish 184NN:8402<br/>--env ANTHROPIC_API_KEY<br/>--volume workspace:/workspace
+        Supervisor-->>-Prime: 200 {generation, branch,<br/>host_port, status: spawned}
+        Note right of Supervisor: Starts polling Lab GET /status every 5s<br/>Starts hard timeout (LOOM_LAB_TIMEOUT_MS, default 10 min)
+    end
+
+    rect rgb(234, 250, 241)
+        Note over User,Lab: Phase 3 — Lab Autonomous Execution
+        Note right of Lab: Boot: node lab-worker.js<br/>Start HTTP server on :8402<br/>status = starting → running
+        Supervisor--)Lab: poll: GET /status → running
+        Note right of Lab: Read program.md<br/>Enter agentic loop:<br/>  Claude API call → tool calls → repeat<br/>  (read_file, write_file, bash, ...)<br/>  2s delay between iterations
+        Supervisor--)Lab: poll: GET /status → running (every 5s)
+        Note right of Lab: Work complete:<br/>  git add -A && git commit<br/>  status = done
+    end
+
+    rect rgb(235, 245, 251)
+        Note over User,Lab: Phase 4 — Supervisor Detects Completion
+        Lab-->>Supervisor: poll: GET /status → done
+        Note right of Supervisor: 1. Cancel hard timeout + stop polling<br/>2. Update generations.edn → outcome: done<br/>3. Save gen-N-report.json<br/>4. git fetch clone lab/gen-N:lab/gen-N<br/>   → branch now visible in main repo<br/>5. Emit SSE event: lab-done<br/>6. Stop and destroy container
+        Supervisor-->>Prime: SSE: lab-done {generation: N, status: done}
+    end
+
+    rect rgb(234, 242, 248)
+        Note over User,Lab: Phase 5 — Independent Verification (Prime)
+        Note right of Prime: verify_generation tool:<br/>  git diff --stat master...lab/gen-N<br/>  git diff master...lab/gen-N (truncated 5000 chars)<br/>  git checkout lab/gen-N<br/>  npm test && node out/test.js<br/>  ALWAYS return to master (even on error)
+        Note right of Prime: Tests pass → promote<br/>Tests fail → rollback
+    end
+
+    alt Tests Passed
+        rect rgb(234, 250, 241)
+            Note over User,Lab: Phase 6A — Promote
+            Prime->>+Supervisor: POST /promote {generation: N}
+            Note right of Supervisor: git checkout master<br/>git merge lab/gen-N<br/>git tag -a gen-N -m 'Promote generation N'<br/>git branch -d lab/gen-N<br/>Update generations.edn → promoted<br/>Save report, cleanup workspace
+            Supervisor-->>-Prime: 200 {status: promoted}
+        end
+    else Tests Failed
+        rect rgb(253, 237, 236)
+            Note over User,Lab: Phase 6B — Rollback
+            Prime->>+Supervisor: POST /rollback {generation: N}
+            Note right of Supervisor: git checkout master<br/>git branch -d lab/gen-N<br/>Update generations.edn → failed<br/>Save report, cleanup workspace
+            Supervisor-->>-Prime: 200 {status: rolled-back}
+        end
+    end
+
+    rect rgb(254, 249, 231)
+        Note over User,Lab: Alternative — Hard Timeout
+        Note right of Supervisor: If Lab does not report done/failed<br/>within LOOM_LAB_TIMEOUT_MS (default 10 min):<br/>  1. Cancel polling<br/>  2. generations.edn → timeout<br/>  3. Save gen-N-report.json<br/>  4. Stop and destroy container<br/>  5. Emit SSE: timeout event
+    end
