@@ -206,21 +206,28 @@
       :message (str "Build artifact missing: " worker-path
                     ". Run 'npx shadow-cljs release lab-worker' first.")})
 
-    (nil? (.-ANTHROPIC_API_KEY (.-env js/process)))
+    (and (nil? (.-LOOM_LAB_API_KEY (.-env js/process)))
+         (nil? (.-ANTHROPIC_API_KEY (.-env js/process))))
     (js/Promise.resolve
      {:error true
-      :message "ANTHROPIC_API_KEY not set in supervisor environment. Source .env before starting."})
+      :message "No API key for Lab: set LOOM_LAB_API_KEY or ANTHROPIC_API_KEY. Source .env before starting."})
 
     :else
     (let [branch         (str "lab/gen-" gen-num)
           container-name (str "lab-gen-" gen-num)
-          ;; Inject ANTHROPIC_API_KEY from Supervisor's env into Lab
-          api-key        (.-ANTHROPIC_API_KEY (.-env js/process))
+          ;; Inject API credentials into Lab container.
+          ;; LOOM_LAB_API_KEY / LOOM_LAB_API_BASE allow a separate provider for Labs
+          ;; (e.g. Minimax Anthropic-compatible endpoint). Falls back to Anthropic.
+          api-key        (or (.-LOOM_LAB_API_KEY (.-env js/process))
+                             (.-ANTHROPIC_API_KEY (.-env js/process)))
+          api-base       (or (.-LOOM_LAB_API_BASE (.-env js/process))
+                             (.-ANTHROPIC_API_BASE (.-env js/process)))
           ;; Forward Lab model: LOOM_LAB_MODEL takes precedence, falls back to LOOM_MODEL
           lab-model      (or (.-LOOM_LAB_MODEL (.-env js/process))
                              (.-LOOM_MODEL (.-env js/process)))
           lab-env        (cond-> {:PORT (str container-port)}
                            api-key   (assoc :ANTHROPIC_API_KEY api-key)
+                           api-base  (assoc :ANTHROPIC_API_BASE api-base)
                            lab-model (assoc :LOOM_MODEL lab-model))
           ;; Host port: offset from a base to avoid collisions across concurrent Labs
           host-port      (+ 18400 gen-num)]
