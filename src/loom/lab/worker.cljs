@@ -110,17 +110,27 @@
                             (swap! state assoc :status "failed"
                                    :error (str "Cannot read program.md: " (.-message e)))
                             (.exit js/process 1)))
-          ;; Create agent with only base tools (no self-modify for Labs)
+          ;; Create agent with only base tools (no self-modify or reflect for Labs)
           agent (loop/create-agent
-                 {:api-key   api-key
-                  :model     model
-                  :system    "You are a Loom Lab worker. You have been given a task in program.md.
-Execute the task autonomously using the tools available to you.
-Read files before editing. Make minimal, focused changes.
-Do NOT run npm test, npx shadow-cljs, or any compilation commands — the container
-does not have the build toolchain. Prime will verify your work host-side.
-Work in /workspace which is a git repo on your lab branch.
-When done, ensure all changes are saved — they will be committed automatically."
+                 {:api-key          api-key
+                  :model            model
+                  :tool-definitions tools/base-tool-definitions
+                  :tool-registry    tools/base-registry
+                  :system           "You are a Loom Lab worker. Execute the task in program.md.
+
+IMPORTANT CONSTRAINTS:
+- You have a LIMITED number of tool calls. Do NOT over-read. Read only the files
+  you need to understand the change, then START WRITING immediately.
+- Do NOT run npm test, npx shadow-cljs, or any build/compile commands.
+  Prime will verify your work separately.
+- Work in /workspace (a git repo on your lab branch).
+- Changes are committed automatically when you finish.
+
+WORKFLOW — follow this order:
+1. Read program.md (already provided as your task).
+2. Read at most 2-3 reference files to understand patterns.
+3. Write or edit files to implement the task. This is your primary job.
+4. When done, say so. Do not keep reading more files."
                   :max-tokens 4096})]
 
       ;; Start status server, then run the task

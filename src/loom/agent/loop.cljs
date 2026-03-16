@@ -46,19 +46,25 @@ Work step by step. Read files before editing them. Run tests to verify your chan
 (defn create-agent
   "Create an agent state map.
    Options:
-     :api-key    — Anthropic API key (required)
-     :model      — model ID (default: claude-sonnet-4-20250514)
-     :system     — system prompt (default: built-in)
-     :max-tokens — max tokens per response (default: 4096)"
-  [{:keys [api-key model system max-tokens]
+     :api-key          — Anthropic API key (required)
+     :model            — model ID (default: claude-sonnet-4-20250514)
+     :system           — system prompt (default: built-in)
+     :max-tokens       — max tokens per response (default: 4096)
+     :tool-definitions — tool definitions for Claude API (default: all tools)
+     :tool-registry    — tool name→fn map for dispatch (default: all tools)"
+  [{:keys [api-key model system max-tokens tool-definitions tool-registry]
     :or {model "claude-sonnet-4-20250514"
          system default-system-prompt
-         max-tokens 4096}}]
-  {:api-key    api-key
-   :model      model
-   :system     system
-   :max-tokens max-tokens
-   :messages   []})
+         max-tokens 4096
+         tool-definitions tools/tool-definitions
+         tool-registry tools/registry}}]
+  {:api-key          api-key
+   :model            model
+   :system           system
+   :max-tokens       max-tokens
+   :tool-definitions tool-definitions
+   :tool-registry    tool-registry
+   :messages         []})
 
 (defn- append-assistant-message
   "Append Claude's response as an assistant message."
@@ -111,14 +117,15 @@ Work step by step. Read files before editing them. Run tests to verify your chan
 
 (defn- call-claude
   "Send current conversation to Claude. Returns a promise of the response.
-   Trims conversation history to max-context-messages before sending."
+   Trims conversation history to max-context-messages before sending.
+   Uses the agent's tool-definitions (not the global set)."
   [agent on-event]
   (claude/send-message
    {:api-key    (:api-key agent)
     :model      (:model agent)
     :messages   (trim-messages (:messages agent))
     :system     (:system agent)
-    :tools      tools/tool-definitions
+    :tools      (:tool-definitions agent)
     :max-tokens (:max-tokens agent)
     :on-event   on-event}))
 
@@ -163,7 +170,7 @@ Work step by step. Read files before editing them. Run tests to verify your chan
                (do (when on-event
                      (on-event {:type :tool-calls
                                 :calls (mapv #(select-keys % [:name :id]) tool-calls)}))
-                   (-> (dispatch/dispatch-all tool-calls)
+                   (-> (dispatch/dispatch-all tool-calls (:tool-registry agent))
                        (.then
                         (fn [results]
                           (when on-event
