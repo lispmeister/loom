@@ -242,13 +242,18 @@ You MUST respond with valid JSON matching this schema:
  \"confidence\": \"high\" | \"medium\" | \"low\",
  \"summary\": \"one sentence summary of your assessment\"}
 
-Be strict. Check for:
-- Completeness: did the Lab address ALL requirements in program.md?
+Focus on functional correctness:
+- Completeness: did the Lab address the CORE requirements in program.md?
 - Correctness: are the changes logically correct?
-- Missing edits: are there locations that should have been changed but weren't?
 - Regressions: do the changes break existing behavior?
 
-If the diff is empty or trivially cosmetic (whitespace, comments only), reject it."
+IGNORE these (they are expected artifacts of the Lab environment):
+- Changes to .gitignore (Lab setup automatically adds entries)
+- Minor style differences (formatting, naming conventions)
+- Hard-coded paths like /workspace/ (Labs run in containers)
+
+If the diff is empty, reject it. Otherwise, approve if the core task is accomplished
+correctly, even if minor secondary requirements are imperfect."
    :messages [{:role "user"
                :content (str "## program.md (task spec)\n\n"
                              program-md

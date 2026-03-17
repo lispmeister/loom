@@ -198,11 +198,18 @@
         network    (:network config)
         on-timeout (fn [timed-out-gen container-name]
                      (let [completed (.toISOString (js/Date.))
-                           record    (find-generation config timed-out-gen)]
+                           record    (find-generation config timed-out-gen)
+                           entry     (get @lab-timeouts timed-out-gen)
+                           lab-dir   (:lab-dir entry)
+                           timed-branch (str "lab/gen-" timed-out-gen)]
                        (gen/update-generation gens-path timed-out-gen
                                               {:outcome :timeout :completed completed})
                        (when record
                          (save-report config timed-out-gen record :timeout))
+                       ;; Fetch branch before cleaning up — Lab may have partial commits
+                       (when lab-dir
+                         (-> (git/fetch-branch repo-path lab-dir timed-branch)
+                             (.catch (fn [_] nil))))
                        (swap! lab-timeouts dissoc timed-out-gen)
                        (emit-log "timeout" {:generation timed-out-gen
                                             :status "timeout"
@@ -231,8 +238,9 @@
                                          :extra-data (cond-> {}
                                                        token-usage (assoc :token-usage token-usage)
                                                        (:tool-stats final-status) (assoc :tool-stats (:tool-stats final-status)))))
-                          ;; Fetch Lab branch into main repo so verify/promote can find it
-                          (when (and lab-dir (= outcome :done))
+                          ;; Fetch Lab branch into main repo so verify/promote can find it.
+                          ;; Fetch on both :done and :failed — Lab may have committed partial work.
+                          (when lab-dir
                             (-> (git/fetch-branch repo-path lab-dir branch)
                                 (.then (fn [result]
                                          (if (:ok result)

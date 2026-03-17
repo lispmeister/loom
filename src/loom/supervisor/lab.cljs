@@ -44,12 +44,21 @@
                    result
                    (do
                      ;; Write .gitignore to prevent runtime artifacts from being committed
+                     ;; Only add entries if not already present (prevents duplication across generations)
                      (let [gitignore-path (.join path-mod lab-dir ".gitignore")
                            existing (if (.existsSync fs gitignore-path)
-                                      (str (.readFileSync fs gitignore-path "utf8") "\n")
+                                      (.readFileSync fs gitignore-path "utf8")
                                       "")
-                           entries "# Loom Lab runtime artifacts\nlab-worker.js\nprogram.md\n"]
-                       (.writeFileSync fs gitignore-path (str existing entries) "utf8"))
+                           needs-worker (not (re-find #"(?m)^lab-worker\.js$" existing))
+                           needs-program (not (re-find #"(?m)^program\.md$" existing))
+                           additions (cond
+                                       (and needs-worker needs-program)
+                                       "\n# Loom Lab runtime artifacts\nlab-worker.js\nprogram.md\n"
+                                       needs-worker "\nlab-worker.js\n"
+                                       needs-program "\nprogram.md\n"
+                                       :else nil)]
+                       (when additions
+                         (.writeFileSync fs gitignore-path (str existing additions) "utf8")))
                      ;; Write program.md into the lab repo
                      (.writeFileSync fs
                                      (.join path-mod lab-dir "program.md")
