@@ -106,73 +106,130 @@
 (defn- run-cycle
   "Run one reflect-spawn-verify-promote/rollback cycle.
    Returns a promise resolving to:
-   {:generation N :outcome :promoted/:rolled-back/:spawn-failed/:verify-failed
-    :fitness-score N :test-results map :token-usage map :program-md str}"
+   {:generation N :outcome :promoted/:rolled-back/:spawn-failed/:reflect-failed
+    :test-results map :program-md str :reflect-token-usage map
+    :failure-reason str-or-nil :timing map :program-summary str-or-nil}"
   [repo lookback]
   (println "\n[autonomous] === Starting new cycle ===")
-  (-> (reflect/reflect-and-propose {:repo_path repo :lookback lookback})
-      (.then (fn [reflect-result]
-               ;; reflect-result is either a map {:program-md ... :token-usage ...}
-               ;; or an error string on failure
-               (let [reflect-tok  (when (map? reflect-result) (:token-usage reflect-result))
-                     program-md   (if (map? reflect-result)
-                                    (:program-md reflect-result)
-                                    reflect-result)]
-                 (println (str "[autonomous] Reflect proposed:\n"
-                               (subs program-md 0 (min 200 (count program-md)))
-                               (when (> (count program-md) 200) "...")))
-                 (if (str/starts-with? program-md "Error:")
-                   {:generation nil :outcome :reflect-failed
-                    :error program-md :program-md nil :reflect-token-usage reflect-tok}
-                   ;; Spawn the Lab
-                   (-> (sm/spawn-lab {:program_md program-md :source "reflect"})
-                       (.then (fn [spawn-result]
-                                (println (str "[autonomous] Spawn result: " (subs spawn-result 0 (min 100 (count spawn-result)))))
-                                ;; Extract generation number from spawn result
-                                (let [gen-match (re-find #"Generation: (\d+)" spawn-result)]
-                                  (if-not gen-match
-                                    {:generation nil :outcome :spawn-failed
-                                     :error spawn-result :program-md program-md
-                                     :reflect-token-usage reflect-tok}
-                                    (let [gen (js/parseInt (nth gen-match 1) 10)
-                                          failed? (re-find #"Lab failed" spawn-result)]
-                                      (if failed?
-                                        (do (println (str "[autonomous] Gen " gen " Lab failed, rolling back"))
-                                            (-> (sm/rollback-generation {:generation gen})
-                                                (.then (fn [_]
-                                                         {:generation gen :outcome :spawn-failed
-                                                          :error spawn-result :program-md program-md
-                                                          :reflect-token-usage reflect-tok}))))
-                                        ;; Verify the generation
-                                        (do (println (str "[autonomous] Gen " gen " done, verifying..."))
-                                            (-> (sm/verify-generation {:generation gen :repo_path repo})
-                                                (.then (fn [verify-text]
-                                                         (println (str "[autonomous] Verification:\n" verify-text))
-                                                         (let [{:keys [passed? llm-approved? test-results]}
-                                                               (parse-verify-result verify-text)
-                                                               should-promote? (and passed? llm-approved?)]
-                                                           (if should-promote?
-                                                             ;; Promote
-                                                             (do (println (str "[autonomous] Gen " gen " PASSED — promoting"))
-                                                                 (-> (sm/promote-generation {:generation gen})
-                                                                     (.then (fn [promote-result]
-                                                                              (println (str "[autonomous] " promote-result))
-                                                                              {:generation          gen
-                                                                               :outcome             :promoted
-                                                                               :test-results        test-results
-                                                                               :program-md          program-md
-                                                                               :reflect-token-usage reflect-tok}))))
-                                                             ;; Rollback
-                                                             (do (println (str "[autonomous] Gen " gen " FAILED verification — rolling back"
-                                                                               (when-not passed? " (tests failed)")
-                                                                               (when (and passed? (not llm-approved?)) " (LLM rejected)")))
-                                                                 (-> (sm/rollback-generation {:generation gen})
-                                                                     (.then (fn [_]
-                                                                              {:generation          gen
-                                                                               :outcome             :rolled-back
-                                                                               :test-results        test-results
-                                                                               :program-md          program-md
-                                                                               :reflect-token-usage reflect-tok})))))))))))))))))))))))
+  (let [cycle-start (.now js/Date)]
+    (-> (reflect/reflect-and-propose {:repo_path repo :lookback lookback})
+        (.then
+         (fn [reflect-result]
+           (let [reflect-end  (.now js/Date)
+                 reflect-tok  (when (map? reflect-result) (:token-usage reflect-result))
+                 program-md   (if (map? reflect-result)
+                                (:program-md reflect-result)
+                                reflect-result)]
+             (println (str "[autonomous] Reflect proposed:\n"
+                           (subs program-md 0 (min 200 (count program-md)))
+                           (when (> (count program-md) 200) "...")))
+             (if (str/starts-with? program-md "Error:")
+               {:generation          nil
+                :outcome             :reflect-failed
+                :failure-reason      "reflect-failed"
+                :timing              {:reflect-ms (- reflect-end cycle-start)
+                                      :spawn-ms   0
+                                      :verify-ms  0
+                                      :total-ms   (- reflect-end cycle-start)}
+                :program-summary     nil
+                :error               program-md
+                :program-md          nil
+                :reflect-token-usage reflect-tok}
+               (let [program-summary (-> program-md
+                                         str/split-lines
+                                         first
+                                         (str/replace #"^#\s*" ""))]
+                 ;; Spawn the Lab
+                 (-> (sm/spawn-lab {:program_md program-md :source "reflect"})
+                     (.then
+                      (fn [spawn-result]
+                        (let [spawn-end (.now js/Date)]
+                          (println (str "[autonomous] Spawn result: "
+                                        (subs spawn-result 0 (min 100 (count spawn-result)))))
+                          (let [gen-match (re-find #"Generation: (\d+)" spawn-result)]
+                            (if-not gen-match
+                              {:generation          nil
+                               :outcome             :spawn-failed
+                               :failure-reason      "spawn-error"
+                               :timing              {:reflect-ms (- reflect-end cycle-start)
+                                                     :spawn-ms   (- spawn-end reflect-end)
+                                                     :verify-ms  0
+                                                     :total-ms   (- spawn-end cycle-start)}
+                               :program-summary     program-summary
+                               :error               spawn-result
+                               :program-md          program-md
+                               :reflect-token-usage reflect-tok}
+                              (let [gen     (js/parseInt (nth gen-match 1) 10)
+                                    failed? (re-find #"Lab failed" spawn-result)]
+                                (if failed?
+                                  (do (println (str "[autonomous] Gen " gen " Lab failed, rolling back"))
+                                      (-> (sm/rollback-generation {:generation gen})
+                                          (.then
+                                           (fn [_]
+                                             {:generation          gen
+                                              :outcome             :spawn-failed
+                                              :failure-reason      "lab-failed"
+                                              :timing              {:reflect-ms (- reflect-end cycle-start)
+                                                                    :spawn-ms   (- spawn-end reflect-end)
+                                                                    :verify-ms  0
+                                                                    :total-ms   (- spawn-end cycle-start)}
+                                              :program-summary     program-summary
+                                              :error               spawn-result
+                                              :program-md          program-md
+                                              :reflect-token-usage reflect-tok}))))
+                                  ;; Verify the generation
+                                  (do (println (str "[autonomous] Gen " gen " done, verifying..."))
+                                      (-> (sm/verify-generation {:generation gen :repo_path repo})
+                                          (.then
+                                           (fn [verify-text]
+                                             (let [verify-end (.now js/Date)]
+                                               (println (str "[autonomous] Verification:\n" verify-text))
+                                               (let [{:keys [passed? llm-approved? test-results]}
+                                                     (parse-verify-result verify-text)
+                                                     should-promote? (and passed? llm-approved?)
+                                                     timing {:reflect-ms (- reflect-end cycle-start)
+                                                             :spawn-ms   (- spawn-end reflect-end)
+                                                             :verify-ms  (- verify-end spawn-end)
+                                                             :total-ms   (- verify-end cycle-start)}]
+                                                 (if should-promote?
+                                                   ;; Promote
+                                                   (do (println (str "[autonomous] Gen " gen " PASSED — promoting"))
+                                                       (-> (sm/promote-generation {:generation gen})
+                                                           (.then
+                                                            (fn [promote-result]
+                                                              (println (str "[autonomous] " promote-result))
+                                                              {:generation          gen
+                                                               :outcome             :promoted
+                                                               :failure-reason      nil
+                                                               :timing              timing
+                                                               :program-summary     program-summary
+                                                               :test-results        test-results
+                                                               :program-md          program-md
+                                                               :reflect-token-usage reflect-tok}))))
+                                                   ;; Rollback
+                                                   (let [failure-reason (cond
+                                                                          (not passed?)
+                                                                          "tests-failed"
+                                                                          (and passed? (not llm-approved?))
+                                                                          "llm-rejected"
+                                                                          :else
+                                                                          "verify-failed")]
+                                                     (println (str "[autonomous] Gen " gen
+                                                                   " FAILED verification — rolling back"
+                                                                   (when-not passed? " (tests failed)")
+                                                                   (when (and passed? (not llm-approved?))
+                                                                     " (LLM rejected)")))
+                                                     (-> (sm/rollback-generation {:generation gen})
+                                                         (.then
+                                                          (fn [_]
+                                                            {:generation          gen
+                                                             :outcome             :rolled-back
+                                                             :failure-reason      failure-reason
+                                                             :timing              timing
+                                                             :program-summary     program-summary
+                                                             :test-results        test-results
+                                                             :program-md          program-md
+                                                             :reflect-token-usage reflect-tok})))))))))))))))))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Main loop
@@ -249,13 +306,13 @@
                                                                     :promoted    :promoted
                                                                     :rolled-back :rolled-back
                                                                     :failed)]
-                                                  (-> s
-                                                      (update :generations-run inc)
-                                                      (update :total-tokens + cycle-tokens)
-                                                      (update outcome-key inc)
-                                                      (cond->
-                                                       (and score (= :promoted (:outcome result)))
-                                                        (update :recent-scores conj score))))))
+                                                  (let [s1 (-> s
+                                                               (update :generations-run inc)
+                                                               (update :total-tokens + cycle-tokens)
+                                                               (update outcome-key inc))]
+                                                    (if (and score (= :promoted (:outcome result)))
+                                                      (update s1 :recent-scores conj score)
+                                                      s1)))))
 
                                  ;; Log to fitness log
                                  (append-fitness-log repo
@@ -268,6 +325,10 @@
                                                       :reflect-token-usage reflect-tok
                                                       :review-token-usage  review-tok
                                                       :promoted?           (= :promoted (:outcome result))
+                                                      :failure-reason      (:failure-reason result)
+                                                      :cycle-duration-ms   (get-in result [:timing :total-ms])
+                                                      :phase-timing        (:timing result)
+                                                      :program-summary     (:program-summary result)
                                                       :timestamp           (.toISOString (js/Date.))})
 
                                  (println (str "[autonomous] Cycle complete: gen=" gen

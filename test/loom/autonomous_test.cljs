@@ -134,3 +134,52 @@
                   "Result: PASS\nRan 10 tests containing 25 assertions.\n0 failures, 0 errors.\nLLM Review: REJECTED (confidence: high)")]
       (is (true? (:passed? result)))
       (is (false? (:llm-approved? result))))))
+
+;; ---------------------------------------------------------------------------
+;; Fitness log new-field tests
+;; ---------------------------------------------------------------------------
+
+(deftest fitness-log-new-fields-roundtrip-test
+  (testing "fitness log preserves failure-reason, cycle-duration-ms, phase-timing, program-summary"
+    (let [dir (make-tmpdir)
+          tmp (.join path dir "tmp")]
+      (.mkdirSync fs tmp #js {:recursive true})
+      (auto/append-fitness-log dir {:generation        3
+                                    :outcome           "rolled-back"
+                                    :fitness-score     nil
+                                    :failure-reason    "tests-failed"
+                                    :cycle-duration-ms 4200
+                                    :phase-timing      {:reflect-ms 1000
+                                                        :spawn-ms   2000
+                                                        :verify-ms  1200
+                                                        :total-ms   4200}
+                                    :program-summary   "Improve test coverage"
+                                    :timestamp         "2026-03-17T00:00:00.000Z"})
+      (let [entries (auto/read-fitness-log dir)
+            entry   (first entries)]
+        (is (= 1 (count entries)))
+        (is (= "tests-failed" (:failure-reason entry)))
+        (is (= 4200 (:cycle-duration-ms entry)))
+        (is (= "Improve test coverage" (:program-summary entry)))
+        (is (= 1000 (get-in entry [:phase-timing :reflect-ms])))
+        (is (= 4200 (get-in entry [:phase-timing :total-ms]))))
+      (cleanup dir))))
+
+(deftest fitness-log-promoted-no-failure-reason-test
+  (testing "fitness log records nil failure-reason for promoted cycles"
+    (let [dir (make-tmpdir)
+          tmp (.join path dir "tmp")]
+      (.mkdirSync fs tmp #js {:recursive true})
+      (auto/append-fitness-log dir {:generation        1
+                                    :outcome           "promoted"
+                                    :fitness-score     95.0
+                                    :failure-reason    nil
+                                    :cycle-duration-ms 3000
+                                    :program-summary   "Add new feature"
+                                    :timestamp         "2026-03-17T00:00:00.000Z"})
+      (let [entries (auto/read-fitness-log dir)
+            entry   (first entries)]
+        (is (= 1 (count entries)))
+        (is (nil? (:failure-reason entry)))
+        (is (= "Add new feature" (:program-summary entry))))
+      (cleanup dir))))
