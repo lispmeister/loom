@@ -36,6 +36,75 @@
   [repo]
   (.join path repo "tmp" "fitness-log.jsonl"))
 
+;; ---------------------------------------------------------------------------
+;; Lessons log (append-only JSONL)
+;; ---------------------------------------------------------------------------
+
+(defn- lessons-log-path
+  "Path to the lessons log file."
+  [repo]
+  (.join path repo "tmp" "lessons.jsonl"))
+
+(defn derive-lesson-fields
+  "Derive :what-worked and :what-didnt from structured cycle data.
+   Returns {:what-worked str-or-nil :what-didnt str-or-nil}.
+   No LLM call — derived purely from outcome, failure-reason, and test-results."
+  [{:keys [outcome failure-reason test-results]}]
+  (case outcome
+    "promoted"
+    {:what-worked "Task completed successfully, all tests passed, LLM review approved"
+     :what-didnt  nil}
+
+    "rolled-back"
+    (case failure-reason
+      "tests-failed"
+      (let [failures (:failures test-results 0)
+            errors   (:errors test-results 0)]
+        {:what-worked "Lab completed work but tests regressed"
+         :what-didnt  (str "Test failures: " failures " failures, " errors " errors")})
+
+      "llm-rejected"
+      {:what-worked "Tests passed but code quality/correctness was rejected"
+       :what-didnt  "LLM review rejected the changes"}
+
+      ;; fallback for other rolled-back reasons
+      {:what-worked nil
+       :what-didnt  (str "Rolled back: " (or failure-reason "unknown reason"))})
+
+    "spawn-failed"
+    {:what-worked nil
+     :what-didnt  (str "Spawn failed: " (or failure-reason "unknown reason"))}
+
+    "reflect-failed"
+    {:what-worked nil
+     :what-didnt  "Reflect step failed to produce a valid program.md"}
+
+    ;; unknown outcome
+    {:what-worked nil
+     :what-didnt  (str "Unknown outcome: " (or outcome "nil"))}))
+
+(defn append-lesson
+  "Append one JSON line to the lessons log."
+  [repo entry]
+  (let [filepath (lessons-log-path repo)
+        line     (str (js/JSON.stringify (clj->js entry)) "\n")]
+    (try
+      (.appendFileSync fs filepath line "utf8")
+      (catch :default e
+        (println (str "[autonomous] Warning: failed to write lessons log: " (.-message e)))))))
+
+(defn read-lessons
+  "Read the lessons log. Returns a vector of maps, or []."
+  [repo]
+  (let [filepath (lessons-log-path repo)]
+    (try
+      (let [content (.readFileSync fs filepath "utf8")
+            lines   (filter seq (str/split-lines content))]
+        (mapv (fn [line]
+                (js->clj (js/JSON.parse line) :keywordize-keys true))
+              lines))
+      (catch :default _e []))))
+
 (defn append-fitness-log
   "Append one JSON line to the fitness log."
   [repo entry]
@@ -330,6 +399,22 @@
                                                       :phase-timing        (:timing result)
                                                       :program-summary     (:program-summary result)
                                                       :timestamp           (.toISOString (js/Date.))})
+
+                                 ;; Log to lessons log
+                                 (let [outcome-str  (name (or (:outcome result) :unknown))
+                                       lesson-fields (derive-lesson-fields
+                                                      {:outcome       outcome-str
+                                                       :failure-reason (:failure-reason result)
+                                                       :test-results   test-res})]
+                                   (append-lesson repo
+                                                  {:generation        gen
+                                                   :outcome           outcome-str
+                                                   :failure-reason    (:failure-reason result)
+                                                   :task-summary      (:program-summary result)
+                                                   :cycle-duration-ms (get-in result [:timing :total-ms])
+                                                   :what-worked       (:what-worked lesson-fields)
+                                                   :what-didnt        (:what-didnt lesson-fields)
+                                                   :timestamp         (.toISOString (js/Date.))}))
 
                                  (println (str "[autonomous] Cycle complete: gen=" gen
                                                " outcome=" (name (or (:outcome result) :unknown))

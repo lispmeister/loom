@@ -73,11 +73,27 @@
       (- (+ (* tests 10) assertions)
          (/ tokens 1000)))))
 
+(defn read-lessons
+  "Read the last N entries from tmp/lessons.jsonl. Returns a vector of maps, or []."
+  [repo n]
+  (let [filepath (.join path repo "tmp" "lessons.jsonl")
+        content  (read-file-safe filepath)]
+    (if content
+      (try
+        (let [lines   (filter seq (str/split-lines content))
+              entries (mapv (fn [line]
+                              (js->clj (js/JSON.parse line) :keywordize-keys true))
+                            lines)]
+          (take-last n entries))
+        (catch :default _e []))
+      [])))
+
 (defn gather-context
   "Assemble context for the reflect prompt.
    Returns {:priorities str-or-nil
             :generations [{:generation N :outcome kw :program-md str :report map :fitness-score N} ...]
             :latest-gen N-or-nil
+            :lessons [{:generation N :outcome str :what-worked str :what-didnt str ...} ...]
             :codebase {:fitness-fn str-or-nil :tool-definitions str-or-nil
                        :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}}"
   [repo lookback]
@@ -95,10 +111,12 @@
                                :fitness-score (fitness-score-from-report report)}))
                           recent-gens)
         latest      (when (seq all-gens)
-                      (:generation (last all-gens)))]
+                      (:generation (last all-gens)))
+        lessons     (read-lessons repo 5)]
     {:priorities  priorities
      :generations enriched
      :latest-gen  latest
+     :lessons     lessons
      :codebase    (gather-codebase-summary repo)}))
 
 ;; ---------------------------------------------------------------------------
@@ -192,11 +210,21 @@ Your output MUST follow this structure:
       (when (seq parts)
         (str "## System Internals\n\n" (str/join "\n\n" parts))))))
 
+(defn- format-lesson-entry
+  "Format a single lessons entry for the prompt."
+  [{:keys [generation outcome task-summary what-worked what-didnt cycle-duration-ms]}]
+  (str "- **Gen " generation "** (" outcome
+       (when task-summary (str ": " task-summary))
+       (when cycle-duration-ms (str ", " (int (/ cycle-duration-ms 1000)) "s"))
+       ")\n"
+       (when what-worked (str "  - Worked: " what-worked "\n"))
+       (when what-didnt  (str "  - Didn't: " what-didnt "\n"))))
+
 (defn build-reflect-prompt
   "Build the system + user messages for the reflect LLM call.
    Returns {:system str :messages [{:role \"user\" :content str}]}"
   [context]
-  (let [{:keys [priorities generations latest-gen codebase]} context
+  (let [{:keys [priorities generations latest-gen lessons codebase]} context
         priorities-section (if priorities
                              (str "## User Priorities\n\n" priorities)
                              "## User Priorities\n\nNo priorities file found. Focus on stability improvements: better test coverage, error handling, or code quality.")
@@ -209,11 +237,15 @@ Your output MUST follow this structure:
                              (str "Latest generation: " latest-gen "\n"
                                   "Latest outcome: " (name (:outcome (last generations))) "\n")
                              "No generations have run yet.\n"))
+        lessons-section (when (seq lessons)
+                          (str "## Recent Lessons\n\n"
+                               (str/join "" (map format-lesson-entry lessons))))
         codebase-section (format-codebase-section codebase)
         user-content (str/join "\n\n"
                                (cond-> [priorities-section
                                         history-section
                                         state-section]
+                                 lessons-section (conj lessons-section)
                                  codebase-section (conj codebase-section)
                                  true (conj "Respond with ONLY the program.md content. No preamble, no explanation.")))]
     {:system   system-prompt
