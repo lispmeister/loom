@@ -2,15 +2,15 @@
 
 Loom is a self-modifying coding agent written in pure ClojureScript. It runs in Apple containers (VM-level isolation), can rewrite its own code, test modifications in an isolated Lab container, and promote successful changes.
 
-The architecture is described in detail in [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html).
+The architecture is described in a series of blog posts — see [References](#references) below.
 
 ## Architecture
 
 Three components, all ClojureScript on Node.js:
 
-- **Prime Container** — The live, known-good agent. Runs the agentic loop (Claude API → tool dispatch → repeat). Spawns Labs, verifies results, promotes or rolls back.
-- **Supervisor** — Runs on the host (macOS). Manages container lifecycle: create, start, stop, destroy. Maintains generation history. Exposes HTTP dashboard.
-- **Lab Container** — Ephemeral. Reads `program.md`, runs an autonomous agent loop, commits results. Prime verifies independently before promoting.
+- **Prime Container** — The live, known-good agent. Runs the agentic loop (Claude API → tool dispatch → repeat). Spawns Labs, verifies results, promotes or rolls back. Includes a `reflect` step that autonomously proposes the next improvement.
+- **Supervisor** — Runs on the host (macOS). Manages container lifecycle: create, start, stop, destroy. Maintains generation history (`generations.edn`). Exposes HTTP dashboard. Reconciles stale generations on boot.
+- **Lab Container** — Ephemeral. Reads `program.md`, runs an autonomous agent loop, commits results. Reports tool-call statistics. Prime verifies independently (tests + LLM review) before promoting.
 
 ```
 Host (macOS 26, Apple Silicon)
@@ -22,7 +22,7 @@ Host (macOS 26, Apple Silicon)
 │   ├── Agent loop + Claude API client
 │   ├── Tools: read-file, write-file, edit-file, bash, spawn_lab,
 │   │         verify_generation, promote_generation, rollback_generation,
-│   │         reflect_and_propose
+│   │         reflect_and_propose, run_autonomous_loop
 │   └── HTTP dashboard + chat endpoint (:8401)
 └── Lab Container (ephemeral)
     ├── Autonomous agent (reads program.md, implements task)
@@ -37,9 +37,9 @@ Both Prime and Lab are autonomous agents that call the Claude API (Anthropic). T
 | | Prime | Lab |
 |---|---|---|
 | **Default model** | `claude-sonnet-4-20250514` | `claude-haiku-4-5-20251001` |
-| **Tools** | Full set + self-modification (spawn, verify, promote, rollback) | Base tools only (read, write, edit, bash) |
-| **Interaction** | Multi-turn conversation, up to 20 messages in context | Single turn — program.md in, committed code out |
-| **Loop** | Tool-use loop, up to 25 iterations per turn | Same tool-use loop, same iteration cap |
+| **Tools** | Full set + self-modification (spawn, verify, promote, rollback, reflect) | Base tools only (read, write, edit, bash) |
+| **Interaction** | Multi-turn conversation, up to 20 messages in context | Autonomous — program.md in, committed code out |
+| **Loop** | Tool-use loop, up to 40 iterations per turn | Same tool-use loop, same iteration cap |
 
 Labs cannot spawn other Labs or promote themselves — `agent/self_modify.cljs` is excluded from the `lab-worker` build target.
 
@@ -102,11 +102,14 @@ LOOM_LAB_MODEL=claude-haiku-4-5-20251001 npm run supervisor
 src/
   loom/
     shared/        — Malli schemas, eval protocol, HTTP helpers
-    agent/         — Agentic loop, Claude API client, tools, self-modify
-    supervisor/    — Container lifecycle, version management, dashboard
-    lab/           — Eval server + autonomous worker
+    agent/         — Agentic loop, Claude API client, tools, self-modify,
+                     reflect step, autonomous loop driver, CLI
+    supervisor/    — Container lifecycle, version management, fitness scoring,
+                     generation reports, dashboard
+    lab/           — Eval server + autonomous worker (tool-call tracking)
 test/
-  loom/            — Tests
+  loom/            — Tests (142 tests, 376 assertions)
+architecture-reviews/  — Periodic system reviews
 ```
 
 ## Key Design Decisions
@@ -121,7 +124,9 @@ test/
 
 5. **Container = keep/revert boundary.** Instead of building safety into the language, we put experiments in disposable VMs. Promote = merge to main + tag. Revert = destroy container + discard branch.
 
-6. **No MCP, no sub-agents, no streaming for v0.** Direct Claude API calls, radical minimalism. Following Pi coding agent's approach.
+6. **Two-stage verification.** Every Lab generation goes through automated tests AND an LLM code review before promotion. Both must pass.
+
+7. **No MCP, no sub-agents, no streaming for v0.** Direct Claude API calls, radical minimalism. Following Pi coding agent's approach.
 
 ## HTTP Endpoints
 
@@ -176,32 +181,63 @@ The self-modification cycle uses direct HTTP JSON payloads (`POST /spawn`, `/pro
 # Install dependencies
 npm install
 
+# Copy env template and add your API key
+cp env-template .env
+# Edit .env with your ANTHROPIC_API_KEY
+
 # Run tests
 npm test && node out/test.js
 
 # Start Apple container system
 container system start
 
-# Start the supervisor (host-side)
+# Start the supervisor (host-side, source .env first)
+set -a && source .env && set +a
 npm run supervisor
 
 # The supervisor creates and manages Prime/Lab containers automatically
+```
+
+### CLI Tools
+
+Individual agent tools can be run directly without starting the HTTP server:
+
+```bash
+# Reflect: analyze history and propose next improvement
+node out/agent.js reflect
+
+# Spawn a Lab with a program.md
+node out/agent.js spawn path/to/program.md
+
+# Run the autonomous loop (reflect → spawn → verify → promote/rollback)
+node out/agent.js autonomous
 ```
 
 ## Development
 
 - VS Code + [Calva](https://calva.io/) for REPL-connected editing
 - Watch mode: `npm run watch:test` for continuous test compilation
-- Task tracking: `bd list` to see open work
+- Task tracking: `bd ready` to see available work, `bd list` for all issues
 
 ## References
 
-- [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html) — Architecture spec (blog post)
+### Blog Posts
+
+- [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html) — Architecture spec
+- [The program.md Protocol: Steering Self-Improvement with a Contract](https://lispmeister.github.io/deeprecursion/posts/2026-03-13-program-md.html) — How program.md drives the generation cycle
+- [First Light: Loom's Self-Modification Pipeline in 2,214 Lines](https://lispmeister.github.io/deeprecursion/posts/2026-03-16-loom-mvp.html) — MVP milestone and pipeline validation
+
+### Inspiration
+
 - [Pi Coding Agent](https://mariozechner.at/posts/2025-11-30-pi-coding-agent/) — Minimalist agent design
 - [Build Your First 24/7 Agentic Loop](https://wezzard.com/post/2025/09/build-your-first-agentic-loop-9d22) — Contract-driven loops
+
+### Libraries & Tools
+
 - [Malli](https://github.com/metosin/malli) — Schema library
 - [Apple Containerization](https://github.com/apple/container) — Container runtime
 - [ClojureScript Self-Hosting](https://clojurescript.org/guides/self-hosting) — `cljs.js` docs
+- [beads](https://github.com/lispmeister/beads) — Issue tracking
 
 ## License
 

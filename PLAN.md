@@ -4,7 +4,7 @@
 
 A self-modifying coding agent that can rewrite its own code, test modifications in isolated Lab containers, and promote successful changes — all in pure ClojureScript on Node.js.
 
-**Status:** MVP phase complete. Pipeline proven stable with 5/5 successful generations (gen-13 through gen-17, 2026-03-16) — zero failures, zero timeouts, all branches propagated. Earlier hardening (2026-03-16) fixed 5 critical bugs. Next phase: close the recursive loop (reflect step). Tasks tracked in [beads](https://github.com/lispmeister/beads) (`beads list`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
+**Status:** Recursive loop implementation complete. MVP pipeline proven stable (5/5 generations, gen-13–17). Reflect step, autonomous loop driver, two-stage verification (tests + LLM review), fitness scoring, enriched generation reports, and boot-time reconciliation all implemented and tested (142 tests, 376 assertions). Next milestone: end-to-end autonomous run (C.4). Tasks tracked in [beads](https://github.com/lispmeister/beads) (`bd ready`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
 
 ---
 
@@ -114,7 +114,7 @@ The infrastructure is proven. Spawn → execute → detect → fetch → cleanup
 
 2. **Prime has no agency.** It's a chatbot with tools. The user writes program.md, tells Prime to execute it, Prime mechanically spawns/verifies/promotes. There's no decision-making, no prioritization, no self-assessment.
 
-3. **Verification is shallow.** `verify_generation` runs `npm test` — that's it. No eval probes, no benchmarks, no code quality checks. For trivial tasks this is fine. For actual self-modification (rewrite the agentic loop) this is dangerously insufficient. A Lab could introduce a subtle regression that passes all 94 tests.
+3. ~~**Verification is shallow.**~~ **Two-stage verification implemented.** `verify_generation` now runs `npm test` AND an LLM code review (diff analysis with APPROVED/REJECTED verdict). Both must pass for promotion. Still no eval probes or benchmarks, but the LLM review catches regressions that tests miss.
 
 4. ~~**No fitness function.**~~ **Fitness function defined** (see below). Metrics: test health, token efficiency, diff impact.
 
@@ -136,7 +136,7 @@ Start with user priorities + beads, graduate to LLM self-review once fitness fun
 ### Progress Documentation
 
 - ~~**Per-generation metrics**~~ — Done: reports include token counts, test results, diff stats (as of gen-18)
-- **Fitness log** — append-only file tracking key metrics across generations, plottable over time (not yet implemented)
+- ~~**Fitness log**~~ — Done: append-only JSONL (`tmp/fitness-log.jsonl`) tracking fitness score, token usage (gen + reflect + review), failure categorization, cycle timing (reflect/spawn/verify phases), and program summary per generation
 - ~~**Diff summaries**~~ — Done: diff stats in reports
 
 ## Next Milestone: Closing the Recursive Loop
@@ -145,9 +145,11 @@ The MVP proves the pipeline works (human writes program.md → Lab executes → 
 
 ### Prerequisites Before Implementing Reflect
 
-1. ~~**Enrich generation reports**~~ — Done (gen-18+). Reports now include token-usage, test-results, diff-stats.
+1. ~~**Enrich generation reports**~~ — Done (gen-18+). Reports now include token-usage, test-results, diff-stats, tool-stats.
 2. ~~**Define the fitness function**~~ — Done. See below.
-3. **Create `priorities.md`** — user-authored file that Prime reads during reflect to know what to work on
+3. **Create `priorities.md`** — user-authored file that Prime reads during reflect to know what to work on (not yet created)
+
+**Note:** The reflect step is implemented (`agent/reflect.cljs`) and reads generation history, fitness scores, and codebase source for introspection. It does not yet read a `priorities.md` file.
 
 ### Fitness Function
 
