@@ -28,7 +28,7 @@
   "Check if the container CLI is installed. Returns promise of boolean."
   []
   (-> (exec-container ["--help"])
-      (.then (fn [result] (:ok result)))))
+      (.then (fn [result] (boolean (:ok result))))))
 
 (defn create
   "Create a container.
