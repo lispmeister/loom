@@ -306,6 +306,113 @@ If the diff is empty or trivially cosmetic (whitespace, comments only), reject i
                      :confidence :low
                      :summary    "Exception — treating as rejection"}))))))
 
+(defn- get-branch-diffs
+  "Get diff-stat, diff, and shortstat for branch vs master.
+   Returns promise of {:diff-stat str :diff str :diff-stats {:files-changed N :insertions N :deletions N}}."
+  [repo branch]
+  (-> (git-exec repo "diff" "--stat" (str "master..." branch))
+      (.then (fn [diff-stat-result]
+               (-> (git-exec repo "diff" (str "master..." branch))
+                   (.then (fn [diff-result]
+                            (-> (git-exec repo "diff" "--shortstat" (str "master..." branch))
+                                (.then (fn [shortstat-result]
+                                         {:diff-stat  (when (:ok diff-stat-result) (:output diff-stat-result))
+                                          :diff       (when (:ok diff-result) (:output diff-result))
+                                          :diff-stats (when (:ok shortstat-result)
+                                                        (parse-shortstat (:output shortstat-result)))}))))))))))
+
+(defn- checkout-and-test
+  "Checkout branch, run tests, always return to master (in both success and error paths).
+   Returns promise of {:test-result {:ok bool :output str :exit N} :test-counts {:tests-run N ...}}
+   or a string error message if checkout fails."
+  [repo branch]
+  (-> (git-exec repo "checkout" branch)
+      (.then (fn [checkout-result]
+               (if (:error checkout-result)
+                 ;; Checkout failed — no cleanup needed, still on master
+                 (str "Verification failed: cannot checkout " branch ": "
+                      (:message checkout-result))
+                 ;; Run tests and always return to master
+                 (-> (run-tests repo)
+                     (.then (fn [test-result]
+                              (-> (return-to-master repo)
+                                  (.then (fn [_]
+                                           {:test-result  test-result
+                                            :test-counts  (parse-test-counts
+                                                           (:output test-result)
+                                                           (:ok test-result))})))))
+                     (.catch (fn [err]
+                               ;; Tests threw unexpectedly — still return to master
+                               (-> (return-to-master repo)
+                                   (.then (fn [_]
+                                            (str "Verification failed: unexpected error: "
+                                                 (.-message err)))))))))))))
+
+(defn- run-llm-review
+  "Load program.md for the generation and run LLM review against the diff.
+   Returns promise of verdict map, or promise of nil if program.md not found."
+  [repo generation diff]
+  (let [program-md (load-program-md repo generation)]
+    (if program-md
+      (llm-review-diff diff program-md)
+      (js/Promise.resolve nil))))
+
+(defn- store-and-format-verification
+  "Reset the last-verification atom with all data, format and return the human-readable summary string.
+   llm-verdict is nil when program.md was not found (tests passed but review was skipped)."
+  [generation diffs test-data llm-verdict]
+  (let [{:keys [test-result test-counts]} test-data
+        diff-text    (or (:diff diffs) "")
+        test-summary (format-test-summary
+                      generation (:ok test-result)
+                      (:exit test-result) (:output test-result))
+        base-result  (str (:diff-stat diffs) "\n"
+                          test-summary
+                          "\n\nDiff:\n"
+                          (let [d diff-text]
+                            (if (> (count d) 5000)
+                              (str (subs d 0 5000) "\n... (truncated)")
+                              d)))]
+    (cond
+      ;; Tests failed — skip LLM review entirely
+      (not (:ok test-result))
+      (do
+        (reset! last-verification
+                {:generation   generation
+                 :test-results test-counts
+                 :diff-stats   (:diff-stats diffs)})
+        base-result)
+
+      ;; Tests passed but program.md not found — skipped
+      (nil? llm-verdict)
+      (do
+        (reset! last-verification
+                {:generation   generation
+                 :test-results test-counts
+                 :diff-stats   (:diff-stats diffs)
+                 :llm-verdict  {:approved false
+                                :issues ["program.md not found — cannot review"]
+                                :confidence :low
+                                :summary "Skipped: program.md not found"}})
+        (str base-result "\n\nLLM Review: SKIPPED (program.md not found)"))
+
+      ;; Tests passed and LLM review ran
+      :else
+      (do
+        (reset! last-verification
+                {:generation   generation
+                 :test-results test-counts
+                 :diff-stats   (:diff-stats diffs)
+                 :llm-verdict  llm-verdict})
+        (str base-result
+             "\n\nLLM Review: "
+             (if (:approved llm-verdict) "APPROVED" "REJECTED")
+             " (confidence: " (name (:confidence llm-verdict)) ")"
+             "\nSummary: " (:summary llm-verdict)
+             (when (seq (:issues llm-verdict))
+               (str "\nIssues:\n"
+                    (str/join "\n" (map #(str "  - " %) (:issues llm-verdict))))))))))
+
 (defn verify-generation
   "Independently verify a Lab generation's work: get diff, checkout branch,
    run tests, always return to master, report results with change summary.
@@ -315,87 +422,18 @@ If the diff is empty or trivially cosmetic (whitespace, comments only), reject i
   [{:keys [generation repo_path]}]
   (let [branch (str "lab/gen-" generation)
         repo   (or repo_path ".")]
-    ;; Step 1: Get diff stat from master (before checkout, so we don't leave repo dirty)
-    (-> (git-exec repo "diff" "--stat" (str "master..." branch))
-        (.then (fn [diff-stat-result]
-                 ;; Step 2: Get abbreviated diff + shortstat for review
-                 (-> (git-exec repo "diff" (str "master..." branch))
-                     (.then (fn [diff-result]
-                              (-> (git-exec repo "diff" "--shortstat" (str "master..." branch))
-                                  (.then (fn [shortstat-result]
-                                           {:diff-stat  (when (:ok diff-stat-result) (:output diff-stat-result))
-                                            :diff       (when (:ok diff-result) (:output diff-result))
-                                            :diff-stats (when (:ok shortstat-result)
-                                                          (parse-shortstat (:output shortstat-result)))}))))))))
+    (-> (get-branch-diffs repo branch)
         (.then (fn [diffs]
-                 ;; Step 3: Checkout lab branch
-                 (-> (git-exec repo "checkout" branch)
-                     (.then (fn [checkout-result]
-                              (if (:error checkout-result)
-                                ;; Checkout failed — no cleanup needed, still on master
-                                (str "Verification failed: cannot checkout " branch ": "
-                                     (:message checkout-result))
-                                ;; Step 4: Run tests (always return to master after, via .then+.catch)
-                                (-> (run-tests repo)
-                                    (.then (fn [test-result]
-                                             (-> (return-to-master repo)
-                                                 (.then (fn [_]
-                                                          (let [test-counts (parse-test-counts
-                                                                             (:output test-result)
-                                                                             (:ok test-result))
-                                                                program-md (load-program-md repo generation)
-                                                                diff-text  (or (:diff diffs) "")
-                                                                test-summary (format-test-summary
-                                                                              generation (:ok test-result)
-                                                                              (:exit test-result) (:output test-result))
-                                                                base-result (str (:diff-stat diffs) "\n"
-                                                                                 test-summary
-                                                                                 "\n\nDiff:\n"
-                                                                                 (let [d diff-text]
-                                                                                   (if (> (count d) 5000)
-                                                                                     (str (subs d 0 5000) "\n... (truncated)")
-                                                                                     d)))]
-                                                            ;; If tests failed, skip LLM review
-                                                            (if-not (:ok test-result)
-                                                              (do
-                                                                (reset! last-verification
-                                                                        {:generation   generation
-                                                                         :test-results test-counts
-                                                                         :diff-stats   (:diff-stats diffs)})
-                                                                base-result)
-                                                              ;; Tests passed — run LLM review
-                                                              (if-not program-md
-                                                                (do
-                                                                  (reset! last-verification
-                                                                          {:generation   generation
-                                                                           :test-results test-counts
-                                                                           :diff-stats   (:diff-stats diffs)
-                                                                           :llm-verdict  {:approved false
-                                                                                          :issues ["program.md not found — cannot review"]
-                                                                                          :confidence :low
-                                                                                          :summary "Skipped: program.md not found"}})
-                                                                  (str base-result "\n\nLLM Review: SKIPPED (program.md not found)"))
-                                                                (-> (llm-review-diff diff-text program-md)
-                                                                    (.then (fn [verdict]
-                                                                             (reset! last-verification
-                                                                                     {:generation   generation
-                                                                                      :test-results test-counts
-                                                                                      :diff-stats   (:diff-stats diffs)
-                                                                                      :llm-verdict  verdict})
-                                                                             (str base-result
-                                                                                  "\n\nLLM Review: "
-                                                                                  (if (:approved verdict) "APPROVED" "REJECTED")
-                                                                                  " (confidence: " (name (:confidence verdict)) ")"
-                                                                                  "\nSummary: " (:summary verdict)
-                                                                                  (when (seq (:issues verdict))
-                                                                                    (str "\nIssues:\n"
-                                                                                         (str/join "\n" (map #(str "  - " %) (:issues verdict)))))))))))))))))
-                                    (.catch (fn [err]
-                                              ;; Tests threw unexpectedly — still return to master
-                                              (-> (return-to-master repo)
-                                                  (.then (fn [_]
-                                                           (str "Verification failed: unexpected error: "
-                                                                (.-message err)))))))))))))))))
+                 (-> (checkout-and-test repo branch)
+                     (.then (fn [test-data]
+                              ;; checkout-and-test returns a string on checkout/test failure
+                              (if (string? test-data)
+                                test-data
+                                (if-not (:passed? (:test-counts test-data))
+                                  (store-and-format-verification generation diffs test-data nil)
+                                  (-> (run-llm-review repo generation (or (:diff diffs) ""))
+                                      (.then (fn [verdict]
+                                               (store-and-format-verification generation diffs test-data verdict))))))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Tool definitions and registry
