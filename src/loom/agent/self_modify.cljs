@@ -172,7 +172,7 @@
      (.execFile cp "git" #js ["checkout" "master"] #js {:cwd repo}
                 (fn [_err _stdout _stderr] (resolve nil))))))
 
-(defn- parse-test-counts
+(defn parse-test-counts
   "Extract structured test results from test output.
    Returns {:tests-run N :assertions N :failures N :errors N :passed? bool}."
   [output passed?]
@@ -200,7 +200,7 @@
            (str "\nFull output (last 50 lines):\n"
                 (->> lines (take-last 50) (str/join "\n")))))))
 
-(defn- parse-shortstat
+(defn parse-shortstat
   "Parse git diff --shortstat output into {:files-changed N :insertions N :deletions N}."
   [output]
   (let [files (if-let [m (re-find #"(\d+) files? changed" output)]
