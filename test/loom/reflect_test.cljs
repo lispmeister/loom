@@ -102,6 +102,47 @@
       (is (re-find #"program\.md.*not found" user-msg)))))
 
 ;; ---------------------------------------------------------------------------
+;; gather-codebase-summary tests
+;; ---------------------------------------------------------------------------
+
+(deftest gather-codebase-summary-returns-expected-keys-test
+  (testing "gather-codebase-summary returns a map with all expected keys when pointed at the real repo root"
+    (let [repo-root (-> js/process .-env .-PWD)
+          summary   (reflect/gather-codebase-summary repo-root)]
+      ;; Must have all four keys
+      (is (map? summary))
+      (is (contains? summary :fitness-fn))
+      (is (contains? summary :tool-definitions))
+      (is (contains? summary :reflect-prompt))
+      (is (contains? summary :loop-system-prompt))
+      ;; Each value should be a non-blank string (files exist in the real repo)
+      (is (string? (:fitness-fn summary)))
+      (is (seq (:fitness-fn summary)))
+      (is (string? (:tool-definitions summary)))
+      (is (seq (:tool-definitions summary)))
+      (is (string? (:reflect-prompt summary)))
+      (is (seq (:reflect-prompt summary)))
+      (is (string? (:loop-system-prompt summary)))
+      (is (seq (:loop-system-prompt summary)))
+      ;; Spot-check content: fitness.cljs should mention fitness-score
+      (is (re-find #"fitness-score" (:fitness-fn summary)))
+      ;; tools.cljs should mention tool-definitions
+      (is (re-find #"tool-definitions" (:tool-definitions summary)))
+      ;; reflect.cljs should mention build-reflect-prompt
+      (is (re-find #"build-reflect-prompt" (:reflect-prompt summary)))
+      ;; loop.cljs should mention system-prompt
+      (is (re-find #"system-prompt" (:loop-system-prompt summary))))))
+
+(deftest gather-codebase-summary-returns-nil-on-missing-files-test
+  (testing "gather-codebase-summary returns nil values for files that don't exist"
+    (let [summary (reflect/gather-codebase-summary "/nonexistent/path/that/does/not/exist")]
+      (is (map? summary))
+      (is (nil? (:fitness-fn summary)))
+      (is (nil? (:tool-definitions summary)))
+      (is (nil? (:reflect-prompt summary)))
+      (is (nil? (:loop-system-prompt summary))))))
+
+;; ---------------------------------------------------------------------------
 ;; reflect-and-propose error handling
 ;; ---------------------------------------------------------------------------
 
