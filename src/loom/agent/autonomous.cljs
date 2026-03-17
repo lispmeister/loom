@@ -4,6 +4,7 @@
   (:require [clojure.string :as str]
             [loom.agent.reflect :as reflect]
             [loom.agent.self-modify :as sm]
+            [loom.agent.budget :as budget]
             [loom.supervisor.fitness :as fitness]
             ["node:fs" :as fs]
             ["node:path" :as path]
@@ -174,6 +175,12 @@
     ;; Token budget
     (and (pos? token-budget) (>= total-tokens token-budget))
     (str "Token budget exhausted (" total-tokens "/" token-budget ")")
+
+    ;; API prompt budget — rolling window rate limit guard
+    (budget/budget-exhausted?)
+    (str "API prompt budget exhausted ("
+         (budget/calls-in-window) "/" budget/max-calls
+         " calls in window)")
 
     ;; Fitness plateau — no improvement over plateau-window consecutive promoted generations
     (and (pos? plateau-window)
@@ -355,6 +362,10 @@
   (println "[autonomous] Starting autonomous loop")
   (println (str "[autonomous] Max generations: " (if (pos? max-generations) max-generations "unlimited")))
   (println (str "[autonomous] Token budget: " (if (pos? token-budget) token-budget "unlimited")))
+  (println (str "[autonomous] API prompt budget: "
+                (if (pos? budget/max-calls)
+                  (str budget/max-calls " calls/" (/ budget/window-ms 3600000) "h window")
+                  "unlimited")))
   (println (str "[autonomous] Plateau window: " plateau-window))
 
   (let [state (atom {:generations-run 0
@@ -400,6 +411,11 @@
                                                        (fitness/fitness-score
                                                         {:test-results test-res
                                                          :token-usage  tok-usage}))]
+
+                                 ;; Record ~3 API calls per cycle (reflect + Lab LLM + verify review)
+                                 (budget/record-call!)
+                                 (budget/record-call!)
+                                 (budget/record-call!)
 
                                  ;; Update state
                                  (swap! state (fn [s]
