@@ -181,3 +181,30 @@
                           (is (= true (:is_error block)))
                           (is (re-find #"unknown tool" (:content block))))
                         (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; build-program-md tests
+;; ---------------------------------------------------------------------------
+
+(deftest build-program-md-contains-task-description
+  (testing "includes task description in output"
+    (let [result (tools/build-program-md "add a REST endpoint for health checks")]
+      (is (string? result))
+      (is (re-find #"add a REST endpoint for health checks" result)))))
+
+(deftest build-program-md-has-required-sections
+  (testing "output contains # Task heading and ## Acceptance Criteria"
+    (let [result (tools/build-program-md "some task")]
+      (is (re-find #"# Task" result))
+      (is (re-find #"## Acceptance Criteria" result)))))
+
+(deftest build-program-md-has-standard-criteria
+  (testing "acceptance criteria include tests pass and functionality works"
+    (let [result (tools/build-program-md "some task")]
+      (is (re-find #"All existing tests pass" result))
+      (is (re-find #"New functionality works as described" result)))))
+
+(deftest build-task-registered
+  (testing "build_task is in the tool definitions"
+    (let [names (map :name tools/tool-definitions)]
+      (is (some #{"build_task"} names)))))

@@ -121,6 +121,29 @@
                   (resolve (str/join "\n" lines)))))))))
 
 ;; ---------------------------------------------------------------------------
+;; build-task: user-requested Lab generations
+;; ---------------------------------------------------------------------------
+
+(defn build-program-md
+  "Generate a program.md from a task description.
+   Returns a string suitable for passing to spawn-lab."
+  [task-description]
+  (str "# Task\n\n"
+       task-description
+       "\n\n## Acceptance Criteria\n\n"
+       "- All existing tests pass\n"
+       "- New functionality works as described\n"))
+
+(defn build-task
+  "Spawn a Lab to implement a user-requested task.
+   Generates a program.md from the task description and spawns a Lab with
+   source=user. Blocks until the Lab finishes (done/failed) or times out.
+   Input: {:task_description string}"
+  [{:keys [task_description]}]
+  (let [program-md (build-program-md task_description)]
+    (self-modify/spawn-lab {:program_md program-md :source "user"})))
+
+;; ---------------------------------------------------------------------------
 ;; Tool registry
 ;; ---------------------------------------------------------------------------
 
@@ -135,7 +158,13 @@
   "All tool definitions: core + self-modify + reflect."
   (-> base-tool-definitions
       (into self-modify/tool-definitions)
-      (into reflect/tool-definitions)))
+      (into reflect/tool-definitions)
+      (into [{:name "build_task"
+              :description "Spawn a Lab to implement a user-requested build or coding task. Generates a program.md from the description and spawns a Lab with source=user. Blocks until the Lab finishes (done/failed) or times out."
+              :input_schema {:type "object"
+                             :properties {:task_description {:type "string"
+                                                             :description "Plain-language description of what to build or implement"}}
+                             :required ["task_description"]}}])))
 
 (defn- reflect-and-propose-tool
   "Wrap reflect-and-propose for the tool interface: extracts :program-md string
@@ -151,4 +180,5 @@
 (def registry
   "All tools: core + self-modify + reflect."
   (-> (merge base-registry self-modify/registry reflect/registry)
-      (assoc "reflect_and_propose" reflect-and-propose-tool)))
+      (assoc "reflect_and_propose" reflect-and-propose-tool)
+      (assoc "build_task" build-task)))
