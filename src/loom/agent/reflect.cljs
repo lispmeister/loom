@@ -50,6 +50,16 @@
   [repo]
   (read-file-safe (.join path repo "priorities.md")))
 
+(defn gather-codebase-summary
+  "Read key source files from the repo for reflect introspection.
+   Returns a map with :fitness-fn, :tool-definitions, :reflect-prompt,
+   :loop-system-prompt. Values are full file contents (strings) or nil on failure."
+  [repo]
+  {:fitness-fn        (read-file-safe (.join path repo "src" "loom" "supervisor" "fitness.cljs"))
+   :tool-definitions  (read-file-safe (.join path repo "src" "loom" "agent" "tools.cljs"))
+   :reflect-prompt    (read-file-safe (.join path repo "src" "loom" "agent" "reflect.cljs"))
+   :loop-system-prompt (read-file-safe (.join path repo "src" "loom" "agent" "loop.cljs"))})
+
 (defn- fitness-score-from-report
   "Calculate fitness score from a report map, matching supervisor/fitness.cljs formula.
    score = (tests-run * 10) + (assertions * 1) - (total-tokens / 1000)"
@@ -67,7 +77,9 @@
   "Assemble context for the reflect prompt.
    Returns {:priorities str-or-nil
             :generations [{:generation N :outcome kw :program-md str :report map :fitness-score N} ...]
-            :latest-gen N-or-nil}"
+            :latest-gen N-or-nil
+            :codebase {:fitness-fn str-or-nil :tool-definitions str-or-nil
+                       :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}}"
   [repo lookback]
   (let [priorities  (read-priorities repo)
         all-gens    (read-generations repo)
@@ -86,7 +98,8 @@
                       (:generation (last all-gens)))]
     {:priorities  priorities
      :generations enriched
-     :latest-gen  latest}))
+     :latest-gen  latest
+     :codebase    (gather-codebase-summary repo)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Prompt building
@@ -157,11 +170,33 @@ Your output MUST follow this structure:
            (str "- **program.md:**\n```\n" prog-preview "\n```\n")
            "- **program.md:** not found\n"))))
 
+(defn- format-codebase-section
+  "Format the System Internals section for the prompt.
+   Only includes subsections where the file was successfully read (not nil)."
+  [codebase]
+  (when codebase
+    (let [{:keys [fitness-fn tool-definitions reflect-prompt loop-system-prompt]} codebase
+          parts (cond-> []
+                  fitness-fn
+                  (conj (str "### Fitness Function (src/loom/supervisor/fitness.cljs)\n"
+                             "```clojure\n" fitness-fn "\n```"))
+                  tool-definitions
+                  (conj (str "### Tool Definitions (available to Labs)\n"
+                             "```clojure\n" tool-definitions "\n```"))
+                  reflect-prompt
+                  (conj (str "### Current Reflect Prompt Template\n"
+                             "```clojure\n" reflect-prompt "\n```"))
+                  loop-system-prompt
+                  (conj (str "### Agent Loop System Prompt (src/loom/agent/loop.cljs)\n"
+                             "```clojure\n" loop-system-prompt "\n```")))]
+      (when (seq parts)
+        (str "## System Internals\n\n" (str/join "\n\n" parts))))))
+
 (defn build-reflect-prompt
   "Build the system + user messages for the reflect LLM call.
    Returns {:system str :messages [{:role \"user\" :content str}]}"
   [context]
-  (let [{:keys [priorities generations latest-gen]} context
+  (let [{:keys [priorities generations latest-gen codebase]} context
         priorities-section (if priorities
                              (str "## User Priorities\n\n" priorities)
                              "## User Priorities\n\nNo priorities file found. Focus on stability improvements: better test coverage, error handling, or code quality.")
@@ -174,10 +209,13 @@ Your output MUST follow this structure:
                              (str "Latest generation: " latest-gen "\n"
                                   "Latest outcome: " (name (:outcome (last generations))) "\n")
                              "No generations have run yet.\n"))
-        user-content (str priorities-section "\n\n"
-                          history-section "\n\n"
-                          state-section "\n"
-                          "Respond with ONLY the program.md content. No preamble, no explanation.")]
+        codebase-section (format-codebase-section codebase)
+        user-content (str/join "\n\n"
+                               (cond-> [priorities-section
+                                        history-section
+                                        state-section]
+                                 codebase-section (conj codebase-section)
+                                 true (conj "Respond with ONLY the program.md content. No preamble, no explanation.")))]
     {:system   system-prompt
      :messages [{:role "user" :content user-content}]}))
 
