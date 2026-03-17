@@ -22,4 +22,8 @@
   :test
   {:target :node-test
    :output-to "out/test.js"
-   :autorun true}}}
+   :autorun true}
+
+  :dev
+  {:target :node-repl
+   :output-to "out/dev.js"}}}
