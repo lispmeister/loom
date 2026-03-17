@@ -67,12 +67,28 @@
   (when report
     (fitness/fitness-score report (fitness/current-config))))
 
+(defn read-lessons
+  "Read the last N entries from tmp/lessons.jsonl. Returns a vector of maps, or []."
+  [repo n]
+  (let [filepath (.join path repo "tmp" "lessons.jsonl")
+        content  (read-file-safe filepath)]
+    (if content
+      (try
+        (let [lines   (filter seq (str/split-lines content))
+              entries (mapv (fn [line]
+                              (js->clj (js/JSON.parse line) :keywordize-keys true))
+                            lines)]
+          (take-last n entries))
+        (catch :default _e []))
+      [])))
+
 (defn gather-context
   "Assemble context for the reflect prompt.
    Returns {:priorities str-or-nil
             :generations [{:generation N :outcome kw :program-md str :report map :fitness-score N} ...]
             :latest-gen N-or-nil
             :fitness-config {:test-weight N :assertion-weight N :token-penalty-divisor N}
+            :lessons [{:generation N :outcome str :what-worked str :what-didnt str ...} ...]
             :codebase {:fitness-fn str-or-nil :tool-definitions str-or-nil
                        :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}}"
   [repo lookback]
@@ -91,11 +107,13 @@
                              recent-gens)
         latest         (when (seq all-gens)
                          (:generation (last all-gens)))
-        fitness-config (fitness/current-config)]
+        fitness-config (fitness/current-config)
+        lessons        (read-lessons repo 5)]
     {:priorities     priorities
      :generations    enriched
      :latest-gen     latest
      :fitness-config fitness-config
+     :lessons        lessons
      :codebase       (gather-codebase-summary repo)}))
 
 ;; ---------------------------------------------------------------------------
@@ -214,13 +232,23 @@ Your output MUST follow this structure:
            "- **token-penalty-divisor:** " token-penalty-divisor " — divisor for token cost penalty\n"
            "\nTo change these weights, edit `config/fitness.edn`."))))
 
+(defn- format-lesson-entry
+  "Format a single lessons entry for the prompt."
+  [{:keys [generation outcome task-summary what-worked what-didnt cycle-duration-ms]}]
+  (str "- **Gen " generation "** (" outcome
+       (when task-summary (str ": " task-summary))
+       (when cycle-duration-ms (str ", " (int (/ cycle-duration-ms 1000)) "s"))
+       ")\n"
+       (when what-worked (str "  - Worked: " what-worked "\n"))
+       (when what-didnt  (str "  - Didn't: " what-didnt "\n"))))
+
 (defn build-reflect-prompt
   "Build the system + user messages for the reflect LLM call.
    Returns {:system str :messages [{:role \"user\" :content str}]}
    Accepts an optional :base-dir in context to load the system prompt template
    from a specific directory (useful for testing)."
   [context]
-  (let [{:keys [priorities generations latest-gen fitness-config codebase base-dir]} context
+  (let [{:keys [priorities generations latest-gen fitness-config lessons codebase base-dir]} context
         loaded-system (if base-dir
                         (load-reflect-system-prompt base-dir)
                         system-prompt)
@@ -237,12 +265,16 @@ Your output MUST follow this structure:
                                   "Latest outcome: " (name (:outcome (last generations))) "\n")
                              "No generations have run yet.\n"))
         fitness-section  (format-fitness-config-section fitness-config)
+        lessons-section (when (seq lessons)
+                          (str "## Recent Lessons\n\n"
+                               (str/join "" (map format-lesson-entry lessons))))
         codebase-section (format-codebase-section codebase)
         user-content (str/join "\n\n"
                                (cond-> [priorities-section
                                         history-section
                                         state-section]
                                  fitness-section  (conj fitness-section)
+                                 lessons-section  (conj lessons-section)
                                  codebase-section (conj codebase-section)
                                  true (conj "Respond with ONLY the program.md content. No preamble, no explanation.")))]
     {:system   loaded-system

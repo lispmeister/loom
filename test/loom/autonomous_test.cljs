@@ -274,3 +274,101 @@
         (is (= 64 (count (:program-md-hash entry))))
         (is (= "bug-fix" (:task-type entry))))
       (cleanup dir))))
+
+;; ---------------------------------------------------------------------------
+;; Lessons log tests
+;; ---------------------------------------------------------------------------
+
+(deftest lessons-log-roundtrip-test
+  (testing "append and read lessons log entries"
+    (let [dir (make-tmpdir)
+          tmp (.join path dir "tmp")]
+      (.mkdirSync fs tmp #js {:recursive true})
+      (auto/append-lesson dir {:generation        1
+                               :outcome           "promoted"
+                               :failure-reason    nil
+                               :task-summary      "Add caching layer"
+                               :cycle-duration-ms 5000
+                               :what-worked       "Task completed successfully, all tests passed, LLM review approved"
+                               :what-didnt        nil
+                               :timestamp         "2026-03-17T00:00:00.000Z"})
+      (auto/append-lesson dir {:generation        2
+                               :outcome           "rolled-back"
+                               :failure-reason    "tests-failed"
+                               :task-summary      "Refactor auth module"
+                               :cycle-duration-ms 3000
+                               :what-worked       "Lab completed work but tests regressed"
+                               :what-didnt        "Test failures: 3 failures, 1 errors"
+                               :timestamp         "2026-03-17T01:00:00.000Z"})
+      (let [entries (auto/read-lessons dir)]
+        (is (= 2 (count entries)))
+        (is (= 1 (:generation (first entries))))
+        (is (= "promoted" (:outcome (first entries))))
+        (is (= "Add caching layer" (:task-summary (first entries))))
+        (is (= "Task completed successfully, all tests passed, LLM review approved"
+               (:what-worked (first entries))))
+        (is (nil? (:what-didnt (first entries))))
+        (is (= 2 (:generation (second entries))))
+        (is (= "rolled-back" (:outcome (second entries))))
+        (is (= "Test failures: 3 failures, 1 errors" (:what-didnt (second entries)))))
+      (cleanup dir))))
+
+(deftest lessons-log-empty-test
+  (testing "read-lessons returns empty vec when file doesn't exist"
+    (let [entries (auto/read-lessons "/nonexistent/path")]
+      (is (= [] entries)))))
+
+;; ---------------------------------------------------------------------------
+;; derive-lesson-fields tests
+;; ---------------------------------------------------------------------------
+
+(deftest derive-lesson-promoted-test
+  (testing "promoted outcome produces correct what-worked/what-didnt"
+    (let [{:keys [what-worked what-didnt]}
+          (auto/derive-lesson-fields {:outcome "promoted" :failure-reason nil :test-results nil})]
+      (is (= "Task completed successfully, all tests passed, LLM review approved" what-worked))
+      (is (nil? what-didnt)))))
+
+(deftest derive-lesson-tests-failed-test
+  (testing "rolled-back with tests-failed produces failure counts"
+    (let [{:keys [what-worked what-didnt]}
+          (auto/derive-lesson-fields {:outcome        "rolled-back"
+                                      :failure-reason "tests-failed"
+                                      :test-results   {:failures 2 :errors 1}})]
+      (is (= "Lab completed work but tests regressed" what-worked))
+      (is (= "Test failures: 2 failures, 1 errors" what-didnt)))))
+
+(deftest derive-lesson-llm-rejected-test
+  (testing "rolled-back with llm-rejected outcome"
+    (let [{:keys [what-worked what-didnt]}
+          (auto/derive-lesson-fields {:outcome        "rolled-back"
+                                      :failure-reason "llm-rejected"
+                                      :test-results   {:failures 0 :errors 0}})]
+      (is (= "Tests passed but code quality/correctness was rejected" what-worked))
+      (is (= "LLM review rejected the changes" what-didnt)))))
+
+(deftest derive-lesson-spawn-failed-test
+  (testing "spawn-failed outcome"
+    (let [{:keys [what-worked what-didnt]}
+          (auto/derive-lesson-fields {:outcome        "spawn-failed"
+                                      :failure-reason "lab-failed"
+                                      :test-results   nil})]
+      (is (nil? what-worked))
+      (is (= "Spawn failed: lab-failed" what-didnt)))))
+
+(deftest derive-lesson-reflect-failed-test
+  (testing "reflect-failed outcome"
+    (let [{:keys [what-worked what-didnt]}
+          (auto/derive-lesson-fields {:outcome        "reflect-failed"
+                                      :failure-reason "reflect-failed"
+                                      :test-results   nil})]
+      (is (nil? what-worked))
+      (is (= "Reflect step failed to produce a valid program.md" what-didnt)))))
+
+(deftest derive-lesson-tests-failed-zero-counts-test
+  (testing "tests-failed with nil test-results defaults to 0 counts"
+    (let [{:keys [what-didnt]}
+          (auto/derive-lesson-fields {:outcome        "rolled-back"
+                                      :failure-reason "tests-failed"
+                                      :test-results   nil})]
+      (is (= "Test failures: 0 failures, 0 errors" what-didnt)))))

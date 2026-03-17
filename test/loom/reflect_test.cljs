@@ -1,7 +1,10 @@
 (ns loom.reflect-test
   "Tests for the reflect step: prompt building and error handling."
   (:require [cljs.test :refer [deftest async is testing]]
-            [loom.agent.reflect :as reflect]))
+            [loom.agent.reflect :as reflect]
+            ["node:fs" :as fs]
+            ["node:path" :as path]
+            ["node:os" :as os]))
 
 ;; ---------------------------------------------------------------------------
 ;; build-reflect-prompt tests
@@ -100,6 +103,68 @@
           prompt (reflect/build-reflect-prompt context)
           user-msg (:content (first (:messages prompt)))]
       (is (re-find #"program\.md.*not found" user-msg)))))
+
+(deftest build-reflect-prompt-with-lessons-test
+  (testing "lessons in context appear in the prompt as a Recent Lessons section"
+    (let [context {:priorities  "## 1. Fix bug"
+                   :generations []
+                   :latest-gen  nil
+                   :lessons     [{:generation        1
+                                  :outcome           "promoted"
+                                  :task-summary      "Add caching layer"
+                                  :cycle-duration-ms 5000
+                                  :what-worked       "Task completed successfully, all tests passed, LLM review approved"
+                                  :what-didnt        nil}
+                                 {:generation        2
+                                  :outcome           "rolled-back"
+                                  :task-summary      "Refactor auth module"
+                                  :cycle-duration-ms 3000
+                                  :what-worked       "Lab completed work but tests regressed"
+                                  :what-didnt        "Test failures: 3 failures, 1 errors"}]}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (re-find #"Recent Lessons" user-msg))
+      (is (re-find #"Add caching layer" user-msg))
+      (is (re-find #"promoted" user-msg))
+      (is (re-find #"Test failures: 3 failures, 1 errors" user-msg))
+      (is (re-find #"Task completed successfully" user-msg)))))
+
+(deftest build-reflect-prompt-no-lessons-test
+  (testing "nil or absent lessons key does not add Recent Lessons section"
+    (let [context {:priorities  "## 1. Fix bug"
+                   :generations []
+                   :latest-gen  nil}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (not (re-find #"Recent Lessons" user-msg))))))
+
+;; ---------------------------------------------------------------------------
+;; read-lessons tests
+;; ---------------------------------------------------------------------------
+
+(deftest read-lessons-roundtrip-test
+  (testing "read-lessons reads from lessons.jsonl and returns last N entries"
+    (let [dir (.mkdtempSync fs (.join path (.tmpdir os) "loom-reflect-test-"))
+          tmp (.join path dir "tmp")]
+      (.mkdirSync fs tmp #js {:recursive true})
+      (let [filepath (.join path tmp "lessons.jsonl")]
+        ;; Write 3 lessons
+        (.writeFileSync fs filepath
+                        (str (js/JSON.stringify #js {:generation 1 :outcome "promoted"}) "\n"
+                             (js/JSON.stringify #js {:generation 2 :outcome "rolled-back"}) "\n"
+                             (js/JSON.stringify #js {:generation 3 :outcome "promoted"}) "\n")
+                        "utf8"))
+      (let [lessons (reflect/read-lessons dir 2)]
+        (is (= 2 (count lessons)))
+        ;; Should be last 2: gen 2 and gen 3
+        (is (= 2 (:generation (first lessons))))
+        (is (= 3 (:generation (second lessons)))))
+      (.rmSync fs dir #js {:recursive true :force true}))))
+
+(deftest read-lessons-missing-file-test
+  (testing "read-lessons returns empty seq when file doesn't exist"
+    (let [lessons (reflect/read-lessons "/nonexistent/path" 5)]
+      (is (empty? lessons)))))
 
 ;; ---------------------------------------------------------------------------
 ;; gather-codebase-summary tests
