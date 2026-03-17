@@ -5,21 +5,33 @@
 [![ClojureScript](https://img.shields.io/badge/ClojureScript-Node.js-green.svg)](https://clojurescript.org/)
 [![Claude API](https://img.shields.io/badge/LLM-Claude%20API-blueviolet.svg)](https://docs.anthropic.com/)
 
-Loom is a self-modifying coding agent written in pure ClojureScript. It runs in Apple containers (VM-level isolation), can rewrite its own code, test modifications in an isolated Lab container, and promote successful changes.
+Loom is a coding agent that rewrites its own source code. Written in pure ClojureScript, it spawns isolated experiments in disposable Apple containers, tests its modifications through a two-stage gate (automated tests + LLM code review), and promotes successful changes back to the main branch — autonomously improving itself generation by generation.
 
-The architecture is described in a series of blog posts — see [References](#references) below.
+The core insight: ClojureScript is homoiconic (code is data), so the agent manipulates syntax trees, not text. Experiments run in VM-level isolation, so a bad generation is just a discarded container. Everything the agent can change — its loop, tools, prompts — is mutable. Everything it can't — the [Malli schemas](https://github.com/metosin/malli) that define the protocol — is a fixed point.
 
 <p align="center">
   <img src="loom-architecture.svg" alt="Loom Architecture — Prime, Supervisor, and Lab interaction" width="800">
 </p>
 
+## How It Works
+
+Each generation follows the same cycle: **reflect → spawn → work → verify → promote or rollback → repeat**.
+
+1. **Reflect** — Prime analyzes the codebase and proposes the next improvement
+2. **Spawn** — Prime sends a `program.md` contract to the Supervisor, which creates an ephemeral Lab container
+3. **Work** — The Lab agent autonomously implements the task, commits to a `lab/gen-N` branch
+4. **Verify** — Prime independently checks: do tests pass? Does the diff look correct? (two-stage: tests + LLM review)
+5. **Promote or rollback** — Success: merge to main, tag, clean up. Failure: discard the branch, destroy the container
+
+This loop can run unattended. Prime reflects on what to improve next, and the cycle repeats.
+
 ## Architecture
 
 Three components, all ClojureScript on Node.js:
 
-- **Prime Container** — The live, known-good agent. Runs the agentic loop (Claude API → tool dispatch → repeat). Spawns Labs, verifies results, promotes or rolls back. Includes a `reflect` step that autonomously proposes the next improvement.
-- **Supervisor** — Runs on the host (macOS). Manages container lifecycle: create, start, stop, destroy. Maintains generation history (`generations.edn`). Exposes HTTP dashboard. Reconciles stale generations on boot.
-- **Lab Container** — Ephemeral. Reads `program.md`, runs an autonomous agent loop, commits results. Reports tool-call statistics. Prime verifies independently (tests + LLM review) before promoting.
+- **Prime** — The live, known-good agent. Runs the agentic loop (Claude API → tool dispatch → repeat). Spawns Labs, verifies results, promotes or rolls back. Includes a `reflect` step that autonomously proposes the next improvement.
+- **Supervisor** — Runs on the host (macOS). Manages container lifecycle: create, start, stop, destroy. Maintains generation history (`generations.edn`). Exposes HTTP dashboard.
+- **Lab** — Ephemeral. Reads `program.md`, runs an autonomous agent loop with base tools only, commits results. Prime verifies independently before promoting. Labs cannot spawn other Labs or promote themselves.
 
 ```
 Host (macOS 26, Apple Silicon)
@@ -50,7 +62,7 @@ Both Prime and Lab are autonomous agents that call the Claude API (Anthropic). T
 | **Interaction** | Multi-turn conversation, up to 20 messages in context | Autonomous — program.md in, committed code out |
 | **Loop** | Tool-use loop, up to 40 iterations per turn | Same tool-use loop, same iteration cap |
 
-Labs cannot spawn other Labs or promote themselves — `agent/self_modify.cljs` is excluded from the `lab-worker` build target.
+The `agent/self_modify.cljs` module is excluded from the `lab-worker` build target — Labs have no access to spawn, promote, or rollback tools.
 
 ### Environment Variables
 
@@ -117,25 +129,21 @@ src/
                      generation reports, dashboard
     lab/           — Eval server + autonomous worker (tool-call tracking)
 test/
-  loom/            — Tests (142 tests, 376 assertions)
+  loom/            — Tests (236 tests, 607 assertions)
 architecture-reviews/  — Periodic system reviews
 ```
 
 ## Key Design Decisions
 
-1. **Self-hosted ClojureScript.** Components are AOT-compiled by shadow-cljs for startup performance, but the Lab uses `cljs.js/eval-str` at runtime to evaluate modified code without a build step. This is what enables the agent to test its own modifications.
+1. **Self-hosted ClojureScript.** AOT-compiled by shadow-cljs for startup, but Labs use `cljs.js/eval-str` at runtime to evaluate modified code without a build step. This is what enables the agent to test its own modifications.
 
-2. **Homoiconic code.** ClojureScript is a Lisp — code is data. The agent constructs and manipulates syntax trees directly, not text.
+2. **Containers as the keep/revert boundary.** Safety comes from VM-level isolation, not the language. Promote = merge to main + tag. Revert = destroy container + discard branch.
 
-3. **Malli contracts as fixed points.** Communication schemas (Proposal, ProbeResult, Verdict) are the one thing the agent cannot modify. Everything else — loop, tools, prompts, probe strategy — is mutable.
+3. **Malli contracts as fixed points.** The communication schemas are the one thing the agent cannot modify. Everything else — loop, tools, prompts — is mutable.
 
-4. **Source files as serialization.** Modified code travels as `.cljs` files, not serialized ASTs or binary formats. The Supervisor copies files between version directories.
+4. **Two-stage verification.** Every generation passes automated tests AND an LLM code review before promotion. Both gates must pass.
 
-5. **Container = keep/revert boundary.** Instead of building safety into the language, we put experiments in disposable VMs. Promote = merge to main + tag. Revert = destroy container + discard branch.
-
-6. **Two-stage verification.** Every Lab generation goes through automated tests AND an LLM code review before promotion. Both must pass.
-
-7. **No MCP, no sub-agents, no streaming for v0.** Direct Claude API calls, radical minimalism. Following Pi coding agent's approach.
+5. **Radical minimalism.** No MCP, no sub-agents, no streaming, no frameworks. Direct Claude API calls over plain HTTP.
 
 ## HTTP Endpoints
 
@@ -232,9 +240,9 @@ node out/agent.js autonomous
 
 ### Blog Posts
 
-- [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html) — Architecture spec
-- [The program.md Protocol: Steering Self-Improvement with a Contract](https://lispmeister.github.io/deeprecursion/posts/2026-03-13-program-md.html) — How program.md drives the generation cycle
-- [First Light: Loom's Self-Modification Pipeline in 2,214 Lines](https://lispmeister.github.io/deeprecursion/posts/2026-03-16-loom-mvp.html) — MVP milestone and pipeline validation
+- [It Rewrote Itself: Loom's First Autonomous Self-Modification](https://lispmeister.github.io/deeprecursion/posts/2026-03-17-it-rewrote-itself.html) — Gen-72 autonomously modified its own source and promoted to master in 56 seconds
+- [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html) — Architecture spec: why three components, why ClojureScript, why containers
+- [The program.md Protocol](https://lispmeister.github.io/deeprecursion/posts/2026-03-13-program-md.html) — The contract that steers each generation
 
 ### Inspiration
 

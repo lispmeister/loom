@@ -1,4 +1,4 @@
-<svg width="100%" viewBox="0 0 680 540" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 780 600" xmlns="http://www.w3.org/2000/svg">
 <style>
   :root {
     --bg: #ffffff; --bg2: #f5f5f0; --p: #1a1a1a; --s: #6b6b65; --t: #9c9a92; --b: rgba(0,0,0,0.15);
@@ -12,117 +12,153 @@
   .ts { font-size: 12px; fill: var(--s); font-weight: 400; }
   .th { font-size: 14px; fill: var(--p); font-weight: 500; }
 
-  /* Purple ramp */
-  .c-purple > rect, .c-purple > circle, .c-purple > ellipse { fill: #EEEDFE; stroke: #534AB7; }
-  .c-purple > .th, .c-purple .th { fill: #3C3489; }
-  .c-purple > .ts, .c-purple .ts { fill: #534AB7; }
-  .c-purple > .t,  .c-purple .t  { fill: #3C3489; }
+  /* Purple ramp — Supervisor */
+  .c-purple > rect { fill: #EEEDFE; stroke: #534AB7; }
+  .c-purple .th { fill: #3C3489; }
+  .c-purple .ts { fill: #534AB7; }
   @media (prefers-color-scheme: dark) {
-    .c-purple > rect, .c-purple > circle, .c-purple > ellipse { fill: #3C3489; stroke: #AFA9EC; }
-    .c-purple > .th, .c-purple .th { fill: #CECBF6; }
-    .c-purple > .ts, .c-purple .ts { fill: #AFA9EC; }
-    .c-purple > .t,  .c-purple .t  { fill: #CECBF6; }
+    .c-purple > rect { fill: #3C3489; stroke: #AFA9EC; }
+    .c-purple .th { fill: #CECBF6; }
+    .c-purple .ts { fill: #AFA9EC; }
   }
 
-  /* Teal ramp */
-  .c-teal > rect, .c-teal > circle, .c-teal > ellipse { fill: #E1F5EE; stroke: #0F6E56; }
-  .c-teal > .th, .c-teal .th { fill: #085041; }
-  .c-teal > .ts, .c-teal .ts { fill: #0F6E56; }
-  .c-teal > .t,  .c-teal .t  { fill: #085041; }
+  /* Teal ramp — Prime */
+  .c-teal > rect { fill: #E1F5EE; stroke: #0F6E56; }
+  .c-teal .th { fill: #085041; }
+  .c-teal .ts { fill: #0F6E56; }
   @media (prefers-color-scheme: dark) {
-    .c-teal > rect, .c-teal > circle, .c-teal > ellipse { fill: #085041; stroke: #5DCAA5; }
-    .c-teal > .th, .c-teal .th { fill: #9FE1CB; }
-    .c-teal > .ts, .c-teal .ts { fill: #5DCAA5; }
-    .c-teal > .t,  .c-teal .t  { fill: #9FE1CB; }
+    .c-teal > rect { fill: #085041; stroke: #5DCAA5; }
+    .c-teal .th { fill: #9FE1CB; }
+    .c-teal .ts { fill: #5DCAA5; }
   }
 
-  /* Coral ramp */
-  .c-coral > rect, .c-coral > circle, .c-coral > ellipse { fill: #FAECE7; stroke: #993C1D; }
-  .c-coral > .th, .c-coral .th { fill: #712B13; }
-  .c-coral > .ts, .c-coral .ts { fill: #993C1D; }
-  .c-coral > .t,  .c-coral .t  { fill: #712B13; }
+  /* Coral ramp — Lab */
+  .c-coral > rect { fill: #FAECE7; stroke: #993C1D; }
+  .c-coral .th { fill: #712B13; }
+  .c-coral .ts { fill: #993C1D; }
   @media (prefers-color-scheme: dark) {
-    .c-coral > rect, .c-coral > circle, .c-coral > ellipse { fill: #712B13; stroke: #F0997B; }
-    .c-coral > .th, .c-coral .th { fill: #F5C4B3; }
-    .c-coral > .ts, .c-coral .ts { fill: #F0997B; }
-    .c-coral > .t,  .c-coral .t  { fill: #F5C4B3; }
+    .c-coral > rect { fill: #712B13; stroke: #F0997B; }
+    .c-coral .th { fill: #F5C4B3; }
+    .c-coral .ts { fill: #F0997B; }
   }
 
-  /* Gray ramp */
-  .c-gray > rect, .c-gray > circle, .c-gray > ellipse { fill: #F1EFE8; stroke: #5F5E5A; }
-  .c-gray > .th, .c-gray .th { fill: #444441; }
-  .c-gray > .ts, .c-gray .ts { fill: #5F5E5A; }
+  /* Gray ramp — contracts */
+  .c-gray > rect { fill: #F1EFE8; stroke: #5F5E5A; }
+  .c-gray .th { fill: #444441; }
+  .c-gray .ts { fill: #5F5E5A; }
   @media (prefers-color-scheme: dark) {
-    .c-gray > rect, .c-gray > circle, .c-gray > ellipse { fill: #444441; stroke: #B4B2A9; }
-    .c-gray > .th, .c-gray .th { fill: #D3D1C7; }
-    .c-gray > .ts, .c-gray .ts { fill: #B4B2A9; }
+    .c-gray > rect { fill: #444441; stroke: #B4B2A9; }
+    .c-gray .th { fill: #D3D1C7; }
+    .c-gray .ts { fill: #B4B2A9; }
   }
 
-  .arr { stroke: var(--t); stroke-width: 1.5; }
-  .leader { stroke: var(--t); stroke-width: 0.5; stroke-dasharray: 4 3; }
+  /* Gold ramp — cycle */
+  .c-gold .ts { fill: #8B6914; }
+  @media (prefers-color-scheme: dark) {
+    .c-gold .ts { fill: #E8C55A; }
+  }
+
+  .arr-cycle { stroke-width: 1.8; fill: none; }
 </style>
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<defs>
+  <marker id="arrow-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#0F6E56" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#534AB7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+  <marker id="arrow-coral" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#993C1D" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
 
-<rect x="20" y="20" width="640" height="500" rx="20" fill="none" stroke="var(--t)" stroke-width="1" stroke-dasharray="6 4" opacity="0.4"/>
-<text class="th" x="340" y="48" text-anchor="middle">Host (macOS 26, Apple Silicon)</text>
+<!-- Host boundary -->
+<rect x="20" y="20" width="740" height="560" rx="20" fill="none" stroke="var(--t)" stroke-width="1" stroke-dasharray="6 4" opacity="0.4"/>
+<text class="th" x="390" y="48" text-anchor="middle">Host (macOS 26, Apple Silicon)</text>
 
+<!-- ==================== SUPERVISOR ==================== -->
 <g class="c-purple">
-  <rect x="50" y="70" width="580" height="110" rx="12" stroke-width="0.5"/>
-  <text class="th" x="340" y="100" text-anchor="middle">Supervisor</text>
-  <text class="ts" x="340" y="118" text-anchor="middle">Container lifecycle · version history</text>
-  <text class="ts" x="340" y="136" text-anchor="middle">HTTP dashboard :8400</text>
+  <rect x="50" y="70" width="680" height="100" rx="12" stroke-width="0.5"/>
+  <text class="th" x="390" y="98" text-anchor="middle">Supervisor</text>
+  <text class="ts" x="390" y="116" text-anchor="middle">Container lifecycle · generation history · dashboard :8400</text>
+  <text class="ts" x="390" y="134" text-anchor="middle">POST /spawn · /promote · /rollback</text>
 </g>
 
+<!-- ==================== PRIME ==================== -->
 <g class="c-teal">
-  <rect x="50" y="230" width="270" height="270" rx="12" stroke-width="0.5"/>
-  <text class="th" x="185" y="260" text-anchor="middle">Prime container</text>
-  <text class="ts" x="185" y="280" text-anchor="middle">The live, known-good agent</text>
+  <rect x="50" y="220" width="340" height="240" rx="12" stroke-width="0.5"/>
+  <text class="th" x="220" y="250" text-anchor="middle">Prime Container</text>
+  <text class="ts" x="220" y="268" text-anchor="middle">The live, known-good agent</text>
+</g>
+<!-- Prime sub-boxes (300px wide) -->
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="284" width="300" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="220" y="304" text-anchor="middle" dominant-baseline="central">Agent loop + Claude API</text>
+</g>
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="322" width="300" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="220" y="342" text-anchor="middle" dominant-baseline="central">Tools: read, write, edit, bash</text>
+</g>
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="360" width="300" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="220" y="380" text-anchor="middle" dominant-baseline="central">spawn · verify · promote · rollback</text>
+</g>
+<g class="c-teal" opacity="0.6">
+  <rect x="70" y="398" width="300" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="220" y="418" text-anchor="middle" dominant-baseline="central">Reflect + autonomous loop</text>
 </g>
 
-<g class="c-teal" opacity="0.6">
-  <rect x="70" y="300" width="230" height="36" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="185" y="322" text-anchor="middle" dominant-baseline="central">Agent loop + Claude API</text>
-</g>
-<g class="c-teal" opacity="0.6">
-  <rect x="70" y="344" width="230" height="36" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="185" y="366" text-anchor="middle" dominant-baseline="central">5 tools: read, write, edit, bash, self-modify</text>
-</g>
-<g class="c-teal" opacity="0.6">
-  <rect x="70" y="388" width="230" height="36" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="185" y="410" text-anchor="middle" dominant-baseline="central">Eval client → Lab</text>
-</g>
-<g class="c-teal" opacity="0.6">
-  <rect x="70" y="432" width="230" height="36" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="185" y="454" text-anchor="middle" dominant-baseline="central">Dashboard + chat :8401</text>
-</g>
-
+<!-- ==================== LAB ==================== -->
 <g class="c-coral">
-  <rect x="370" y="230" width="250" height="270" rx="12" stroke-width="0.5"/>
-  <text class="th" x="495" y="260" text-anchor="middle">Lab container</text>
-  <text class="ts" x="495" y="280" text-anchor="middle">Ephemeral, disposable VM</text>
+  <rect x="430" y="220" width="290" height="240" rx="12" stroke-width="0.5"/>
+  <text class="th" x="575" y="250" text-anchor="middle">Lab Container</text>
+  <text class="ts" x="575" y="268" text-anchor="middle">Ephemeral, disposable VM</text>
 </g>
-
+<!-- Lab sub-boxes (250px wide) -->
 <g class="c-coral" opacity="0.6">
-  <rect x="390" y="300" width="210" height="36" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="495" y="322" text-anchor="middle" dominant-baseline="central">Modified agent source</text>
+  <rect x="450" y="284" width="250" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="575" y="304" text-anchor="middle" dominant-baseline="central">Reads program.md contract</text>
 </g>
 <g class="c-coral" opacity="0.6">
-  <rect x="390" y="344" width="210" height="36" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="495" y="366" text-anchor="middle" dominant-baseline="central">Form eval server (TCP/EDN)</text>
+  <rect x="450" y="322" width="250" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="575" y="342" text-anchor="middle" dominant-baseline="central">Autonomous agent (base tools)</text>
+</g>
+<g class="c-coral" opacity="0.6">
+  <rect x="450" y="360" width="250" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="575" y="380" text-anchor="middle" dominant-baseline="central">Commits to lab/gen-N branch</text>
+</g>
+<g class="c-coral" opacity="0.6">
+  <rect x="450" y="398" width="250" height="32" rx="6" stroke-width="0.5"/>
+  <text class="ts" x="575" y="418" text-anchor="middle" dominant-baseline="central">GET /status · :8402</text>
 </g>
 
-<text class="ts" x="340" y="400" text-anchor="middle" fill="#1D9E75">Eval probes</text>
-<line x1="300" y1="410" x2="368" y2="410" stroke="#1D9E75" stroke-width="1" marker-end="url(#arrow)"/>
+<!-- ==================== FLOW ARROWS ==================== -->
 
-<text class="ts" x="160" y="206" text-anchor="middle" fill="#534AB7">Proposals / verdicts</text>
-<line x1="185" y1="215" x2="185" y2="228" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
-<line x1="185" y1="180" x2="185" y2="196" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+<!-- 1. Prime → Supervisor: spawn (label left of arrow) -->
+<path d="M 170 200 L 170 172" class="arr-cycle" stroke="#0F6E56" marker-end="url(#arrow-teal)"/>
+<text class="ts" x="158" y="190" text-anchor="end" fill="#0F6E56">spawn</text>
 
-<text class="ts" x="495" y="206" text-anchor="middle" fill="#534AB7">Lifecycle mgmt</text>
-<line x1="495" y1="180" x2="495" y2="228" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+<!-- 2. Supervisor → Lab: create + start (label right of arrow) -->
+<path d="M 575 172 L 575 218" class="arr-cycle" stroke="#534AB7" marker-end="url(#arrow-purple)"/>
+<text class="ts" x="593" y="200" text-anchor="start" fill="#534AB7">create + start</text>
 
+<!-- 3. Lab → Prime: done (label above arrow) -->
+<path d="M 428 448 L 392 448" class="arr-cycle" stroke="#993C1D" marker-end="url(#arrow-coral)"/>
+<text class="ts" x="410" y="438" text-anchor="middle" fill="#993C1D">done</text>
+
+<!-- 4. Prime → Supervisor: verify + promote/rollback (label right of arrow) -->
+<path d="M 330 200 L 330 172" class="arr-cycle" stroke="#0F6E56" marker-end="url(#arrow-teal)"/>
+<text class="ts" x="348" y="190" text-anchor="start" fill="#0F6E56">verify · promote · rollback</text>
+
+<!-- ==================== GENERATION CYCLE ==================== -->
+<g class="c-gold">
+  <text class="ts" x="390" y="490" text-anchor="middle" font-style="italic" fill="#8B6914">reflect → spawn → work → verify → promote or rollback → repeat</text>
+</g>
+
+<!-- ==================== FIXED CONTRACTS ==================== -->
 <g class="c-gray">
-  <rect x="155" y="475" width="310" height="30" rx="6" stroke-width="0.5"/>
-  <text class="ts" x="310" y="494" text-anchor="middle" dominant-baseline="central">Malli schemas (fixed contracts, never modified)</text>
+  <rect x="140" y="510" width="500" height="44" rx="8" stroke-width="0.5"/>
+  <text class="th" x="390" y="530" text-anchor="middle" dominant-baseline="central">Malli schemas + program.md protocol</text>
+  <text class="ts" x="390" y="546" text-anchor="middle" dominant-baseline="central">Fixed-point contracts — the agent cannot modify these</text>
 </g>
 </svg>

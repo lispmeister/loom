@@ -3,6 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "Recursive self-improving coding agent in ClojureScript",
+  "author": "Markus Fix",
+  "license": "MIT",
+  "homepage": "https://lispmeister.github.io/deeprecursion/posts/2026-03-17-it-rewrote-itself.html",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lispmeister/loom.git"
+  },
+  "keywords": [
+    "clojurescript",
+    "ai-agent",
+    "self-modifying-code",
+    "claude-api",
+    "recursive-self-improvement"
+  ],
   "scripts": {
     "supervisor": "shadow-cljs compile supervisor && node out/supervisor.js",
     "agent": "shadow-cljs compile agent && node out/agent.js",

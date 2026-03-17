@@ -11,8 +11,8 @@ target/
 .clj-kondo/
 .lsp/
 
-README-gpg.md
 generations.edn
+unlock.sh
 
 # Dolt database files (added by bd init)
 .dolt/
