@@ -4,7 +4,7 @@
 
 A self-modifying coding agent that can rewrite its own code, test modifications in isolated Lab containers, and promote successful changes — all in pure ClojureScript on Node.js.
 
-**Status:** Recursive loop implementation complete. MVP pipeline proven stable (5/5 generations, gen-13–17). Reflect step, autonomous loop driver, two-stage verification (tests + LLM review), fitness scoring, enriched generation reports, and boot-time reconciliation all implemented and tested (142 tests, 376 assertions). Next milestone: end-to-end autonomous run (C.4). Tasks tracked in [beads](https://github.com/lispmeister/beads) (`bd ready`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
+**Status:** First autonomous promotion achieved (gen-72, Opus 4.6). Full pipeline validated end-to-end: reflect → spawn → verify (tests + LLM review) → promote. 17 autonomous generations across 3 models (Haiku, Minimax M2.5, Opus 4.6), 1 promoted. Multi-provider LLM support operational (Anthropic + Minimax). 236 tests, 607 assertions. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`bd ready`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
 
 ---
 
@@ -99,7 +99,7 @@ Three problems to solve:
 
 - **Labs cannot self-test** — Shadow-cljs compilation takes ~25s inside the container VM, leaving insufficient time within the 5-min timeout. Labs must NOT run `npm test` or any compilation commands. Prime's `verify_generation` tool runs tests host-side after the Lab reports done.
 - **Tailscale VPN breaks containers** — Apple Containerization vmnet routing fails with Tailscale active. Disconnect before running Labs, then `container system stop && container system start`.
-- **Lab artifacts excluded via .gitignore** — `lab-worker.js` and `program.md` are written to workspace `.gitignore` during `setup-lab-repo` to prevent merge into main.
+- **Lab artifacts in .gitignore** — `lab-worker.js` is added to workspace `.gitignore` during `setup-lab-repo` (with dedup check). `program.md` is NOT gitignored — it's tracked in Lab branch history so verify can inspect it.
 - **Deterministic host ports** — Lab containers publish on port `18400 + gen-num` (e.g., gen-5 → `18405:8402`) to avoid collisions and allow direct debugging.
 
 ## Critical Assessment (2026-03-16)
@@ -110,7 +110,7 @@ The infrastructure is proven. Spawn → execute → detect → fetch → cleanup
 
 ### What's Missing
 
-1. **No generation has modified agent code.** Every successful program.md has been a trivial file operation (add a comment, create a text file, count source files). Gen-1 (add line numbers to read_file) is the only one that touched agent functionality, and that was manually orchestrated. We haven't proven that a Lab can make a meaningful change to the agent and have Prime verify and promote it.
+1. ~~**No generation has modified agent code.**~~ **Resolved (gen-72).** Opus 4.6 autonomously modified `self_modify.cljs` (made 2 private fns public) and created a 63-line test file with 18 assertions. Verified (236 tests, 607 assertions, 0 failures) + LLM review approved → promoted to master. First proof that the pipeline can autonomously modify and improve the agent itself.
 
 2. **Prime has no agency.** It's a chatbot with tools. The user writes program.md, tells Prime to execute it, Prime mechanically spawns/verifies/promotes. There's no decision-making, no prioritization, no self-assessment.
 
@@ -198,7 +198,7 @@ The loop needs safety valves:
 - **Fitness tracking:** Each generation produces quantitative metrics (test count, code size, token usage, tool calls). Tracked in generation reports and fitness log.
 - **Auto-refine on failure:** If a generation fails verification, reflect analyzes the failure and produces an improved program.md before retrying.
 
-**Pipeline prerequisite met:** MVP pipeline stable — 5/5 generations (gen-13 through gen-17) completed successfully with zero failures.
+**Pipeline prerequisite met:** MVP pipeline stable — 5/5 stability generations (gen-13–17), then 17 autonomous generations across 3 models with first promotion (gen-72).
 
 ### Post-Recursion: Switch to Claude Code Token
 
@@ -264,10 +264,55 @@ CLI entry point (`node out/agent.js <command>`) eliminated the main friction poi
 
 ---
 
+## Session Learnings (2026-03-17)
+
+### First Autonomous Promotion (gen-72)
+
+**17 generations, 4 autonomous runs, 3 models, 1 promotion.**
+
+| Run | Model | Generations | Promoted | Key Finding |
+|-----|-------|-------------|----------|-------------|
+| 1 | Haiku | 5 (gen-43–47) | 0 | Discovered branch fetch race, local changes blocking checkout |
+| 2 | Haiku | 5 (gen-53–58) | 0 | gen-58 tests passed but LLM reviewer too strict |
+| 3 | Anthropic | 3 (gen-59–61) | 0 | API credits exhausted (grant propagation delay) |
+| 4 | Minimax M2.5 | 3 (gen-65–68) | 0 | M2.5 read-only behavior — reads files but never writes |
+| 5 | Opus 4.6 | 1 (gen-72) | 1 | Clean success in 56s, first agent code modification |
+
+### Infrastructure Bugs Fixed During Autonomous Runs
+
+1. **Branch fetch race condition** — Agent polls Lab directly, gets "done" before supervisor's async `git/fetch-branch` completes. Verify fails with "pathspec did not match". Fix: retry loop (3 attempts, 2s delay) in `checkout-and-test`.
+2. **Local changes blocking checkout** — Uncommitted edits prevent `git checkout lab/gen-N`. Fix: `git stash --include-untracked` before checkout, `git stash pop` after.
+3. **.gitignore duplication** — Every spawn appended entries even if present. Fix: regex check before appending.
+4. **program.md gitignored** — When .gitignore already had entries and nothing changed, `git commit` failed with "nothing to commit". Fix: removed program.md from .gitignore (it should be tracked in branch history).
+5. **LLM reviewer too strict** — Rejected valid changes due to .gitignore diffs and container path artifacts. Fix: updated review prompt to ignore Lab environment artifacts.
+6. **Timeout handler missing branch fetch** — Supervisor only fetched Lab branch on "done", not timeout. Fix: fetch in both `on-lab-done` (all outcomes) and `on-timeout`.
+
+### Multi-Provider LLM Support
+
+Implemented split-provider configuration via `.env`:
+- **Prime** (reflect, LLM review, chat): `ANTHROPIC_API_KEY`, `ANTHROPIC_API_BASE`, `LOOM_MODEL`
+- **Lab** (autonomous work): `LOOM_LAB_API_KEY`, `LOOM_LAB_API_BASE`, `LOOM_LAB_MODEL`
+- Lab inherits from Prime unless overridden. Documented in `env-template`.
+- Tested with: Anthropic (Haiku, Sonnet, Opus 4.6) and Minimax (M2.5).
+
+### Model Observations
+
+- **Haiku**: Can execute simple tasks but struggles with complex ClojureScript (async, mocking). Gets close but not clean enough to pass two-stage verification.
+- **Minimax M2.5**: Reads files extensively but never writes code. Appears to be a model-level limitation, not a pipeline bug. All 3 generations produced only program.md.
+- **Opus 4.6**: First-try success. Clean, correct code in 56 seconds. Made the right architectural call (defn- → defn for testability). Worth the cost (~$1-2/generation) for non-trivial tasks.
+
+### Cost Analysis
+
+Added `scripts/check-credits.sh` for pre-run cost validation. Observed costs per generation:
+- Haiku: ~$0.10/gen (cheap but low success rate)
+- Sonnet: ~$0.50/gen (Prime reflect + review)
+- Opus 4.6: ~$1-2/gen (expensive but high success rate)
+
+---
+
 ## Not in v0
 
 - Streaming from Claude API
-- Multi-provider support
 - MCP
 - TUI
 - Sub-agents
