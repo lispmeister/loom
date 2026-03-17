@@ -253,6 +253,103 @@
       (is (re-find #"program\.md" (:system prompt))))))
 
 ;; ---------------------------------------------------------------------------
+;; extract-user-friction tests
+;; ---------------------------------------------------------------------------
+
+(deftest extract-user-friction-filters-by-source-test
+  (testing "only generations with :source :user are returned"
+    (let [gens [{:generation 1 :source :user    :outcome :failed   :program-md "# Task\nAdd caching\n## Req" :report nil}
+                {:generation 2 :source :reflect :outcome :failed   :program-md "# Task\nFix bug\n## Req"    :report nil}
+                {:generation 3 :source :cli     :outcome :failed   :program-md "# Task\nDeploy\n## Req"     :report nil}
+                {:generation 4 :source nil      :outcome :failed   :program-md "# Task\nOld gen\n## Req"    :report nil}
+                {:generation 5 :source :user    :outcome :promoted :program-md "# Task\nSucceed\n## Req"    :report nil}]
+          friction (reflect/extract-user-friction gens)]
+      (is (= 1 (count friction)))
+      (is (= 1 (:generation (first friction)))))))
+
+(deftest extract-user-friction-extracts-task-summary-test
+  (testing "task-summary is taken from the first non-blank line of program-md"
+    (let [gens [{:generation 7 :source :user :outcome :failed
+                 :program-md "# Task\nRewrite the parser\n## Requirements\n- Do stuff"
+                 :report nil}]
+          friction (reflect/extract-user-friction gens)]
+      (is (= "# Task" (:task-summary (first friction)))))))
+
+(deftest extract-user-friction-failure-reason-test-failures-test
+  (testing "failure-reason reflects test failures when test-results present"
+    (let [gens [{:generation 8 :source :user :outcome :failed
+                 :program-md "# Task\nFix parser"
+                 :report {:test-results {:tests-run 5 :failures 3 :errors 1 :passed? false}}}]
+          friction (reflect/extract-user-friction gens)]
+      (is (= 1 (count friction)))
+      (is (re-find #"3 failures" (:failure-reason (first friction))))
+      (is (re-find #"1 errors" (:failure-reason (first friction)))))))
+
+(deftest extract-user-friction-failure-reason-timeout-test
+  (testing "failure-reason is 'timed out' for :timeout outcome"
+    (let [gens [{:generation 9 :source :user :outcome :timeout
+                 :program-md "# Task\nSlow operation"
+                 :report nil}]
+          friction (reflect/extract-user-friction gens)]
+      (is (= 1 (count friction)))
+      (is (= "timed out" (:failure-reason (first friction)))))))
+
+(deftest extract-user-friction-handles-nil-program-md-test
+  (testing "nil program-md uses 'unknown task' as summary"
+    (let [gens [{:generation 10 :source :user :outcome :failed :program-md nil :report nil}]
+          friction (reflect/extract-user-friction gens)]
+      (is (= 1 (count friction)))
+      (is (= "unknown task" (:task-summary (first friction)))))))
+
+(deftest extract-user-friction-mixed-sources-test
+  (testing "only :user source failures appear in result; reflect/cli/nil are excluded"
+    (let [gens [{:generation 1 :source :user    :outcome :failed   :program-md "# Task\nA" :report nil}
+                {:generation 2 :source :reflect :outcome :failed   :program-md "# Task\nB" :report nil}
+                {:generation 3 :source :user    :outcome :failed   :program-md "# Task\nC" :report nil}
+                {:generation 4 :source :cli     :outcome :failed   :program-md "# Task\nD" :report nil}
+                {:generation 5 :source :user    :outcome :promoted :program-md "# Task\nE" :report nil}]
+          friction (reflect/extract-user-friction gens)]
+      (is (= 2 (count friction)))
+      (is (= #{1 3} (set (map :generation friction)))))))
+
+;; ---------------------------------------------------------------------------
+;; build-reflect-prompt user-friction section tests
+;; ---------------------------------------------------------------------------
+
+(deftest build-reflect-prompt-includes-user-friction-section-test
+  (testing "User Friction section appears when there are failed user tasks"
+    (let [context {:priorities  "## 1. Fix bug"
+                   :generations []
+                   :latest-gen  nil
+                   :user-friction [{:generation 3 :task-summary "# Task\nAdd caching" :failure-reason "test failures: 2 failures, 0 errors"}]}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (re-find #"User Friction" user-msg))
+      (is (re-find #"Gen 3" user-msg))
+      (is (re-find #"Add caching" user-msg))
+      (is (re-find #"test failures: 2 failures" user-msg))
+      (is (re-find #"Consider whether improving the system" user-msg)))))
+
+(deftest build-reflect-prompt-omits-user-friction-section-when-empty-test
+  (testing "User Friction section is absent when user-friction is empty"
+    (let [context {:priorities  "## 1. Fix bug"
+                   :generations []
+                   :latest-gen  nil
+                   :user-friction []}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (not (re-find #"User Friction" user-msg))))))
+
+(deftest build-reflect-prompt-omits-user-friction-section-when-nil-test
+  (testing "User Friction section is absent when user-friction key is missing/nil"
+    (let [context {:priorities  "## 1. Fix bug"
+                   :generations []
+                   :latest-gen  nil}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (not (re-find #"User Friction" user-msg))))))
+
+;; ---------------------------------------------------------------------------
 ;; reflect-and-propose error handling
 ;; ---------------------------------------------------------------------------
 

@@ -82,6 +82,36 @@
         (catch :default _e []))
       [])))
 
+(defn extract-user-friction
+  "Given enriched generation records, return a vector of failed user-task entries.
+   Each entry has: :generation, :task-summary (first line of program-md), :failure-reason.
+   Handles nil :source gracefully — nil means not a user task, skip it."
+  [enriched-gens]
+  (->> enriched-gens
+       (filter (fn [{:keys [source outcome]}]
+                 (and (or (= source :user) (= source "user"))
+                      (contains? #{:failed :timeout "failed" "timeout"} outcome))))
+       (mapv (fn [{:keys [generation outcome program-md report]}]
+               (let [first-line (when program-md
+                                  (first (filter seq (str/split-lines program-md))))
+                     task-summary (or first-line "unknown task")
+                     test-results (:test-results report)
+                     llm-verdict  (:llm-verdict report)
+                     failure-reason (cond
+                                      (= outcome :timeout) "timed out"
+                                      (and test-results (not (:passed? test-results)))
+                                      (str "test failures: "
+                                           (:failures test-results 0) " failures, "
+                                           (:errors test-results 0) " errors")
+                                      (and llm-verdict (not (:approved llm-verdict)))
+                                      (str "LLM rejected"
+                                           (when (:summary llm-verdict)
+                                             (str ": " (:summary llm-verdict))))
+                                      :else (name outcome))]
+                 {:generation     generation
+                  :task-summary   task-summary
+                  :failure-reason failure-reason})))))
+
 (defn gather-context
   "Assemble context for the reflect prompt.
    Returns {:priorities str-or-nil
@@ -90,7 +120,8 @@
             :fitness-config {:test-weight N :assertion-weight N :token-penalty-divisor N}
             :lessons [{:generation N :outcome str :what-worked str :what-didnt str ...} ...]
             :codebase {:fitness-fn str-or-nil :tool-definitions str-or-nil
-                       :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}}"
+                       :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}
+            :user-friction [{:generation N :task-summary str :failure-reason str} ...]}"
   [repo lookback]
   (let [priorities     (read-priorities repo)
         all-gens       (read-generations repo)
@@ -100,6 +131,7 @@
                                      report (read-report repo n)
                                      prog   (read-program-md repo n)]
                                  {:generation    n
+                                  :source        (:source gen)
                                   :outcome       (:outcome gen)
                                   :program-md    prog
                                   :report        report
@@ -114,7 +146,8 @@
      :latest-gen     latest
      :fitness-config fitness-config
      :lessons        lessons
-     :codebase       (gather-codebase-summary repo)}))
+     :codebase       (gather-codebase-summary repo)
+     :user-friction  (extract-user-friction enriched)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Prompt building
@@ -242,13 +275,26 @@ Your output MUST follow this structure:
        (when what-worked (str "  - Worked: " what-worked "\n"))
        (when what-didnt  (str "  - Didn't: " what-didnt "\n"))))
 
+(defn- format-user-friction-section
+  "Format failed user tasks as a prompt section.
+   Returns nil when there are no failed user tasks."
+  [user-friction]
+  (when (seq user-friction)
+    (str "## User Friction\n\n"
+         "These user-requested tasks failed. Consider whether improving the system would prevent these failures.\n\n"
+         (str/join ""
+                   (map (fn [{:keys [generation task-summary failure-reason]}]
+                          (str "- **Gen " generation "** — " task-summary
+                               " — Reason: " failure-reason "\n"))
+                        user-friction)))))
+
 (defn build-reflect-prompt
   "Build the system + user messages for the reflect LLM call.
    Returns {:system str :messages [{:role \"user\" :content str}]}
    Accepts an optional :base-dir in context to load the system prompt template
    from a specific directory (useful for testing)."
   [context]
-  (let [{:keys [priorities generations latest-gen fitness-config lessons codebase base-dir]} context
+  (let [{:keys [priorities generations latest-gen fitness-config lessons codebase base-dir user-friction]} context
         loaded-system (if base-dir
                         (load-reflect-system-prompt base-dir)
                         system-prompt)
@@ -264,18 +310,20 @@ Your output MUST follow this structure:
                              (str "Latest generation: " latest-gen "\n"
                                   "Latest outcome: " (name (:outcome (last generations))) "\n")
                              "No generations have run yet.\n"))
-        fitness-section  (format-fitness-config-section fitness-config)
-        lessons-section (when (seq lessons)
-                          (str "## Recent Lessons\n\n"
-                               (str/join "" (map format-lesson-entry lessons))))
-        codebase-section (format-codebase-section codebase)
+        fitness-section       (format-fitness-config-section fitness-config)
+        lessons-section       (when (seq lessons)
+                                (str "## Recent Lessons\n\n"
+                                     (str/join "" (map format-lesson-entry lessons))))
+        user-friction-section (format-user-friction-section user-friction)
+        codebase-section      (format-codebase-section codebase)
         user-content (str/join "\n\n"
                                (cond-> [priorities-section
                                         history-section
                                         state-section]
-                                 fitness-section  (conj fitness-section)
-                                 lessons-section  (conj lessons-section)
-                                 codebase-section (conj codebase-section)
+                                 fitness-section       (conj fitness-section)
+                                 lessons-section       (conj lessons-section)
+                                 user-friction-section (conj user-friction-section)
+                                 codebase-section      (conj codebase-section)
                                  true (conj "Respond with ONLY the program.md content. No preamble, no explanation.")))]
     {:system   loaded-system
      :messages [{:role "user" :content user-content}]}))
