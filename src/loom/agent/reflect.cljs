@@ -4,6 +4,7 @@
   (:require [clojure.string :as str]
             [cljs.reader :as reader]
             [loom.agent.claude :as claude]
+            [loom.supervisor.fitness :as fitness]
             ["node:fs" :as fs]
             ["node:path" :as path]))
 
@@ -61,45 +62,41 @@
    :loop-system-prompt (read-file-safe (.join path repo "src" "loom" "agent" "loop.cljs"))})
 
 (defn- fitness-score-from-report
-  "Calculate fitness score from a report map, matching supervisor/fitness.cljs formula.
-   score = (tests-run * 10) + (assertions * 1) - (total-tokens / 1000)"
+  "Calculate fitness score from a report map using the configured weights."
   [report]
   (when report
-    (let [test-results (:test-results report)
-          token-usage  (:token-usage report)
-          tests        (:tests-run test-results 0)
-          assertions   (:assertions test-results 0)
-          tokens       (+ (:input token-usage 0) (:output token-usage 0))]
-      (- (+ (* tests 10) assertions)
-         (/ tokens 1000)))))
+    (fitness/fitness-score report (fitness/current-config))))
 
 (defn gather-context
   "Assemble context for the reflect prompt.
    Returns {:priorities str-or-nil
             :generations [{:generation N :outcome kw :program-md str :report map :fitness-score N} ...]
             :latest-gen N-or-nil
+            :fitness-config {:test-weight N :assertion-weight N :token-penalty-divisor N}
             :codebase {:fitness-fn str-or-nil :tool-definitions str-or-nil
                        :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}}"
   [repo lookback]
-  (let [priorities  (read-priorities repo)
-        all-gens    (read-generations repo)
-        recent-gens (take-last lookback all-gens)
-        enriched    (mapv (fn [gen]
-                            (let [n      (:generation gen)
-                                  report (read-report repo n)
-                                  prog   (read-program-md repo n)]
-                              {:generation    n
-                               :outcome       (:outcome gen)
-                               :program-md    prog
-                               :report        report
-                               :fitness-score (fitness-score-from-report report)}))
-                          recent-gens)
-        latest      (when (seq all-gens)
-                      (:generation (last all-gens)))]
-    {:priorities  priorities
-     :generations enriched
-     :latest-gen  latest
-     :codebase    (gather-codebase-summary repo)}))
+  (let [priorities     (read-priorities repo)
+        all-gens       (read-generations repo)
+        recent-gens    (take-last lookback all-gens)
+        enriched       (mapv (fn [gen]
+                               (let [n      (:generation gen)
+                                     report (read-report repo n)
+                                     prog   (read-program-md repo n)]
+                                 {:generation    n
+                                  :outcome       (:outcome gen)
+                                  :program-md    prog
+                                  :report        report
+                                  :fitness-score (fitness-score-from-report report)}))
+                             recent-gens)
+        latest         (when (seq all-gens)
+                         (:generation (last all-gens)))
+        fitness-config (fitness/current-config)]
+    {:priorities     priorities
+     :generations    enriched
+     :latest-gen     latest
+     :fitness-config fitness-config
+     :codebase       (gather-codebase-summary repo)}))
 
 ;; ---------------------------------------------------------------------------
 ;; Prompt building
@@ -192,11 +189,23 @@ Your output MUST follow this structure:
       (when (seq parts)
         (str "## System Internals\n\n" (str/join "\n\n" parts))))))
 
+(defn- format-fitness-config-section
+  "Format the fitness config as a readable prompt section."
+  [fitness-config]
+  (when fitness-config
+    (let [{:keys [test-weight assertion-weight token-penalty-divisor]} fitness-config]
+      (str "## Fitness Config (config/fitness.edn)\n\n"
+           "The fitness score formula is: `(tests-run * " test-weight ") + (assertions * " assertion-weight ") - (total-tokens / " token-penalty-divisor ")`\n\n"
+           "- **test-weight:** " test-weight " — reward per test run\n"
+           "- **assertion-weight:** " assertion-weight " — reward per assertion\n"
+           "- **token-penalty-divisor:** " token-penalty-divisor " — divisor for token cost penalty\n"
+           "\nTo change these weights, edit `config/fitness.edn`."))))
+
 (defn build-reflect-prompt
   "Build the system + user messages for the reflect LLM call.
    Returns {:system str :messages [{:role \"user\" :content str}]}"
   [context]
-  (let [{:keys [priorities generations latest-gen codebase]} context
+  (let [{:keys [priorities generations latest-gen fitness-config codebase]} context
         priorities-section (if priorities
                              (str "## User Priorities\n\n" priorities)
                              "## User Priorities\n\nNo priorities file found. Focus on stability improvements: better test coverage, error handling, or code quality.")
@@ -209,11 +218,13 @@ Your output MUST follow this structure:
                              (str "Latest generation: " latest-gen "\n"
                                   "Latest outcome: " (name (:outcome (last generations))) "\n")
                              "No generations have run yet.\n"))
+        fitness-section  (format-fitness-config-section fitness-config)
         codebase-section (format-codebase-section codebase)
         user-content (str/join "\n\n"
                                (cond-> [priorities-section
                                         history-section
                                         state-section]
+                                 fitness-section  (conj fitness-section)
                                  codebase-section (conj codebase-section)
                                  true (conj "Respond with ONLY the program.md content. No preamble, no explanation.")))]
     {:system   system-prompt

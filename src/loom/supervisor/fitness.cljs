@@ -1,6 +1,48 @@
 (ns loom.supervisor.fitness
   "Fitness score calculation for generation reports.
-   Determines whether a generation represents an improvement.")
+   Determines whether a generation represents an improvement."
+  (:require [cljs.reader :as reader]
+            ["node:fs" :as fs]
+            ["node:path" :as path]))
+
+;; ---------------------------------------------------------------------------
+;; Config loading
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-config
+  {:test-weight 10
+   :assertion-weight 1
+   :token-penalty-divisor 1000})
+
+(defn load-config
+  "Read config/fitness.edn relative to config-path (or project root).
+   Returns the merged config map, falling back to defaults on any error."
+  ([] (load-config nil))
+  ([config-path]
+   (let [filepath (if config-path
+                    config-path
+                    (.join path "config" "fitness.edn"))]
+     (try
+       (let [content (.readFileSync fs filepath "utf8")
+             parsed  (reader/read-string content)]
+         (merge default-config parsed))
+       (catch :default _e
+         default-config)))))
+
+(defonce ^:private cached-config (atom nil))
+
+(defn current-config
+  "Return the active fitness config. Reads from disk once and caches it.
+   Config is loaded from config/fitness.edn relative to the process cwd,
+   with fallback to defaults."
+  []
+  (when (nil? @cached-config)
+    (reset! cached-config (load-config)))
+  @cached-config)
+
+;; ---------------------------------------------------------------------------
+;; Fitness calculations
+;; ---------------------------------------------------------------------------
 
 (defn safety-check
   "Check safety constraints: tests must pass and test count must not decrease.
@@ -23,24 +65,28 @@
     {:safe? true}))
 
 (defn fitness-score
-  "Compute fitness score from a generation report.
-   score = (tests-run * 10) + (assertions * 1) - (total-tokens / 1000)
+  "Compute fitness score from a generation report using configured weights.
+   score = (tests-run * test-weight) + (assertions * assertion-weight)
+           - (total-tokens / token-penalty-divisor)
    Returns a number. Higher is better."
-  [{:keys [test-results token-usage]}]
-  (let [tests      (:tests-run test-results 0)
-        assertions (:assertions test-results 0)
-        tokens     (+ (:input token-usage 0) (:output token-usage 0))]
-    (- (+ (* tests 10) assertions)
-       (/ tokens 1000))))
+  ([report] (fitness-score report (current-config)))
+  ([{:keys [test-results token-usage]} config]
+   (let [{:keys [test-weight assertion-weight token-penalty-divisor]} config
+         tests      (:tests-run test-results 0)
+         assertions (:assertions test-results 0)
+         tokens     (+ (:input token-usage 0) (:output token-usage 0))]
+     (- (+ (* tests test-weight) (* assertions assertion-weight))
+        (/ tokens token-penalty-divisor)))))
 
 (defn improved?
   "Is this generation an improvement over the previous one?
    Returns {:improved? bool :current-score N :previous-score N :safe? bool :reason \"...\"}."
   [current-report previous-report]
-  (let [safety   (safety-check (:test-results current-report)
+  (let [config   (current-config)
+        safety   (safety-check (:test-results current-report)
                                (:test-results previous-report))
-        current  (fitness-score current-report)
-        previous (if previous-report (fitness-score previous-report) 0)]
+        current  (fitness-score current-report config)
+        previous (if previous-report (fitness-score previous-report config) 0)]
     {:improved?      (and (:safe? safety) (>= current previous))
      :current-score  current
      :previous-score previous
