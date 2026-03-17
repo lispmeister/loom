@@ -6,6 +6,7 @@
             [loom.shared.http :as http]))
 
 (def ^:private fs (js/require "node:fs"))
+(def ^:private path (js/require "node:path"))
 (def ^:private cp (js/require "node:child_process"))
 
 ;; ---------------------------------------------------------------------------
@@ -91,6 +92,37 @@
     nil))
 
 ;; ---------------------------------------------------------------------------
+;; System prompt loading
+;; ---------------------------------------------------------------------------
+
+(def ^:private default-lab-system-prompt
+  "You are a Loom Lab worker. Execute the task in program.md.
+
+IMPORTANT CONSTRAINTS:
+- You have a LIMITED number of tool calls. Do NOT over-read. Read only the files
+  you need to understand the change, then START WRITING immediately.
+- Do NOT run npm test, npx shadow-cljs, or any build/compile commands.
+  Prime will verify your work separately.
+- Work in /workspace (a git repo on your lab branch).
+- Changes are committed automatically when you finish.
+
+WORKFLOW — follow this order:
+1. Read program.md (already provided as your task).
+2. Read at most 2-3 reference files to understand patterns.
+3. Write or edit files to implement the task. This is your primary job.
+4. When done, say so. Do not keep reading more files.")
+
+(defn load-lab-system-prompt
+  "Load the lab system prompt from templates/lab-system.md relative to
+   the given base directory. Falls back to the embedded default if the file
+   is missing or unreadable."
+  [base-dir]
+  (try
+    (let [template-path (.join path base-dir "templates" "lab-system.md")]
+      (.readFileSync fs template-path "utf8"))
+    (catch :default _e default-lab-system-prompt)))
+
+;; ---------------------------------------------------------------------------
 ;; Main
 ;; ---------------------------------------------------------------------------
 
@@ -119,26 +151,13 @@
                                    :error (str "Cannot read program.md: " (.-message e)))
                             (.exit js/process 1)))
           ;; Create agent with only base tools (no self-modify or reflect for Labs)
+          lab-system (load-lab-system-prompt (.resolve path "."))
           agent (loop/create-agent
                  {:api-key          api-key
                   :model            model
                   :tool-definitions tools/base-tool-definitions
                   :tool-registry    tools/base-registry
-                  :system           "You are a Loom Lab worker. Execute the task in program.md.
-
-IMPORTANT CONSTRAINTS:
-- You have a LIMITED number of tool calls. Do NOT over-read. Read only the files
-  you need to understand the change, then START WRITING immediately.
-- Do NOT run npm test, npx shadow-cljs, or any build/compile commands.
-  Prime will verify your work separately.
-- Work in /workspace (a git repo on your lab branch).
-- Changes are committed automatically when you finish.
-
-WORKFLOW — follow this order:
-1. Read program.md (already provided as your task).
-2. Read at most 2-3 reference files to understand patterns.
-3. Write or edit files to implement the task. This is your primary job.
-4. When done, say so. Do not keep reading more files."
+                  :system           lab-system
                   :max-tokens 4096})]
 
       ;; Start status server, then run the task
