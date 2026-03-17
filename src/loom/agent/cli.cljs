@@ -33,12 +33,17 @@
       default)))
 
 (defn- run-reflect
-  "Run reflect_and_propose and print the result."
+  "Run reflect_and_propose and print the result.
+   reflect-and-propose now returns {:program-md str :token-usage map} on success,
+   or an error string on failure."
   [argv]
   (let [lookback (js/parseInt (parse-flag argv "--lookback" "5") 10)
         repo     (parse-flag argv "--repo" ".")]
     (-> (reflect/reflect-and-propose {:repo_path repo :lookback lookback})
-        (.then (fn [result] (exit 0 result)))
+        (.then (fn [result]
+                 (if (map? result)
+                   (exit 0 (:program-md result))
+                   (exit 0 result))))
         (.catch (fn [err] (exit 1 (str "Error: " (.-message err))))))))
 
 (defn- run-spawn
