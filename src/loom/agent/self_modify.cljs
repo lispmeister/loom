@@ -336,32 +336,64 @@ If the diff is empty or trivially cosmetic (whitespace, comments only), reject i
                                           :diff-stats (when (:ok shortstat-result)
                                                         (parse-shortstat (:output shortstat-result)))}))))))))))
 
+(defn- delay-ms
+  "Return a promise that resolves after ms milliseconds."
+  [ms]
+  (js/Promise. (fn [resolve _] (js/setTimeout resolve ms))))
+
+(defn- stash-local-changes
+  "Stash any local changes so checkout can proceed cleanly. Best-effort."
+  [repo]
+  (git-exec repo "stash" "--include-untracked"))
+
+(defn- pop-stash
+  "Pop stashed changes after returning to master. Best-effort, never rejects."
+  [repo]
+  (-> (git-exec repo "stash" "pop")
+      (.catch (fn [_] nil))))
+
 (defn- checkout-and-test
   "Checkout branch, run tests, always return to master (in both success and error paths).
    Returns promise of {:test-result {:ok bool :output str :exit N} :test-counts {:tests-run N ...}}
-   or a string error message if checkout fails."
+   or a string error message if checkout fails.
+   Stashes local changes before checkout and restores them after.
+   Retries checkout up to 3 times with 2s delay to handle race with supervisor's
+   async branch fetch after Lab completion."
   [repo branch]
-  (-> (git-exec repo "checkout" branch)
-      (.then (fn [checkout-result]
-               (if (:error checkout-result)
-                 ;; Checkout failed — no cleanup needed, still on master
-                 (str "Verification failed: cannot checkout " branch ": "
-                      (:message checkout-result))
-                 ;; Run tests and always return to master
-                 (-> (run-tests repo)
-                     (.then (fn [test-result]
-                              (-> (return-to-master repo)
-                                  (.then (fn [_]
-                                           {:test-result  test-result
-                                            :test-counts  (parse-test-counts
-                                                           (:output test-result)
-                                                           (:ok test-result))})))))
-                     (.catch (fn [err]
-                               ;; Tests threw unexpectedly — still return to master
-                               (-> (return-to-master repo)
-                                   (.then (fn [_]
-                                            (str "Verification failed: unexpected error: "
-                                                 (.-message err)))))))))))))
+  (-> (stash-local-changes repo)
+      (.then
+       (fn [_]
+         (letfn [(try-checkout [retries-left last-error]
+                   (if (zero? retries-left)
+                     (-> (return-to-master repo)
+                         (.then (fn [_] (pop-stash repo)))
+                         (.then (fn [_]
+                                  (str "Verification failed: cannot checkout " branch ": " last-error))))
+                     (-> (git-exec repo "checkout" branch)
+                         (.then (fn [checkout-result]
+                                  (if (:error checkout-result)
+                                    (-> (delay-ms 2000)
+                                        (.then (fn [_]
+                                                 (try-checkout (dec retries-left)
+                                                               (:message checkout-result)))))
+                                    ;; Run tests and always return to master
+                                    (-> (run-tests repo)
+                                        (.then (fn [test-result]
+                                                 (-> (return-to-master repo)
+                                                     (.then (fn [_] (pop-stash repo)))
+                                                     (.then (fn [_]
+                                                              {:test-result  test-result
+                                                               :test-counts  (parse-test-counts
+                                                                              (:output test-result)
+                                                                              (:ok test-result))})))))
+                                        (.catch (fn [err]
+                                                  ;; Tests threw unexpectedly — still return to master
+                                                  (-> (return-to-master repo)
+                                                      (.then (fn [_] (pop-stash repo)))
+                                                      (.then (fn [_]
+                                                               (str "Verification failed: unexpected error: "
+                                                                    (.-message err))))))))))))))]
+           (try-checkout 3 nil))))))
 
 (defn- run-llm-review
   "Load program.md for the generation and run LLM review against the diff.
