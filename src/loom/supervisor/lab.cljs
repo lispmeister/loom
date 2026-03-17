@@ -165,6 +165,60 @@
     (fn [] (reset! cancelled true))))
 
 ;; ---------------------------------------------------------------------------
+;; Build artifact validation
+;; ---------------------------------------------------------------------------
+
+(defn- cljs-files-under
+  "Return a seq of absolute paths to all .cljs files under dir-path (recursive)."
+  [dir-path]
+  (try
+    (let [entries (js->clj (.readdirSync fs dir-path #js {:withFileTypes true}))]
+      (mapcat (fn [entry]
+                (let [name     (.-name entry)
+                      full     (.join path-mod dir-path name)]
+                  (cond
+                    (.-isDirectory entry) (cljs-files-under full)
+                    (str/ends-with? name ".cljs") [full]
+                    :else [])))
+              entries))
+    (catch :default _e [])))
+
+(defn check-worker-artifact
+  "Validate that the compiled lab-worker.js build artifact is present and up-to-date.
+
+   Returns {:ok true} when the artifact exists.
+   Returns {:error true :message <string>} when it is missing.
+
+   As a side-effect, logs a warning to stderr when any .cljs source file under
+   src-dir is newer than the artifact (stale build), but does NOT treat that as
+   a hard failure.
+
+   Arguments:
+     worker-path — path to lab-worker.js (e.g. \"out/lab-worker.js\")
+     src-dir     — root of ClojureScript sources to check for staleness (default: \"src\")"
+  [worker-path & {:keys [src-dir] :or {src-dir "src"}}]
+  (if-not (.existsSync fs worker-path)
+    {:error true
+     :message (str "Build artifact missing: " worker-path
+                   ". Run 'npx shadow-cljs release lab-worker' first.")}
+    (do
+      ;; Optional staleness check — warn but do not block.
+      (try
+        (let [artifact-mtime (.-mtimeMs (.statSync fs worker-path))
+              stale-sources  (filter (fn [f]
+                                       (try
+                                         (> (.-mtimeMs (.statSync fs f)) artifact-mtime)
+                                         (catch :default _e false)))
+                                     (cljs-files-under src-dir))]
+          (when (seq stale-sources)
+            (js/console.warn
+             (str "WARNING: lab-worker.js may be stale. "
+                  (count stale-sources) " .cljs source file(s) are newer than "
+                  worker-path ". Consider running 'npx shadow-cljs release lab-worker'."))))
+        (catch :default _e nil))
+      {:ok true})))
+
+;; ---------------------------------------------------------------------------
 ;; Container lifecycle
 ;; ---------------------------------------------------------------------------
 
@@ -218,11 +272,8 @@
            timeout-ms 300000}}]
   ;; Pre-flight checks
   (cond
-    (not (.existsSync fs worker-path))
-    (js/Promise.resolve
-     {:error true
-      :message (str "Build artifact missing: " worker-path
-                    ". Run 'npx shadow-cljs release lab-worker' first.")})
+    (:error (check-worker-artifact worker-path))
+    (js/Promise.resolve (check-worker-artifact worker-path))
 
     (and (nil? (.-LOOM_LAB_API_KEY (.-env js/process)))
          (nil? (.-ANTHROPIC_API_KEY (.-env js/process))))

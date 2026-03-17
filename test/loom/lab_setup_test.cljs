@@ -148,6 +148,64 @@
         (is (= 10 (get-in data [:verification :tests-passed]))))
       (.rmSync fs dir #js {:recursive true :force true}))))
 
+;; -- check-worker-artifact tests --
+
+(deftest test-check-worker-artifact-missing
+  (testing "check-worker-artifact returns error when file does not exist"
+    (let [result (lab/check-worker-artifact "/nonexistent/path/lab-worker.js")]
+      (is (:error result))
+      (is (string? (:message result)))
+      (is (re-find #"Build artifact missing" (:message result)))
+      (is (re-find #"shadow-cljs release lab-worker" (:message result))))))
+
+(deftest test-check-worker-artifact-present
+  (testing "check-worker-artifact returns ok when file exists"
+    (let [dir  (.mkdtempSync fs (.join path-mod (.tmpdir os) "loom-artifact-"))
+          path (.join path-mod dir "lab-worker.js")]
+      (.writeFileSync fs path "// fake worker" "utf8")
+      (let [result (lab/check-worker-artifact path)]
+        (is (:ok result))
+        (is (not (:error result))))
+      (.rmSync fs dir #js {:recursive true :force true}))))
+
+(deftest test-spawn-lab-fails-without-artifact
+  (testing "spawn-lab returns error promise when lab-worker.js is missing"
+    (async done
+           (-> (lab/spawn-lab "/fake/repo" 99 "# program"
+                              :worker-path "/nonexistent/lab-worker.js")
+               (.then (fn [result]
+                        (is (:error result))
+                        (is (string? (:message result)))
+                        (is (re-find #"Build artifact missing" (:message result)))
+                        (done)))))))
+
+(deftest test-spawn-lab-proceeds-past-artifact-check-when-present
+  (testing "spawn-lab passes artifact check and reaches API-key check when artifact exists"
+    ;; We cannot run a full container spawn in unit tests, but we can verify
+    ;; that a present artifact does not trigger the artifact-missing error.
+    ;; The next gate (missing API key) will fire instead, confirming the artifact
+    ;; check passed.
+    (async done
+           (let [dir  (.mkdtempSync fs (.join path-mod (.tmpdir os) "loom-artifact-"))
+                 path (.join path-mod dir "lab-worker.js")]
+             (.writeFileSync fs path "// fake worker" "utf8")
+             (let [orig-key (.-ANTHROPIC_API_KEY (.-env js/process))
+                   orig-lab (.-LOOM_LAB_API_KEY (.-env js/process))]
+               (js-delete (.-env js/process) "ANTHROPIC_API_KEY")
+               (js-delete (.-env js/process) "LOOM_LAB_API_KEY")
+               (-> (lab/spawn-lab "/fake/repo" 99 "# program"
+                                  :worker-path path)
+                   (.then (fn [result]
+                            ;; Restore env vars
+                            (when orig-key (aset (.-env js/process) "ANTHROPIC_API_KEY" orig-key))
+                            (when orig-lab (aset (.-env js/process) "LOOM_LAB_API_KEY" orig-lab))
+                            (.rmSync fs dir #js {:recursive true :force true})
+                            ;; Should have failed on API key, NOT on artifact
+                            (is (:error result))
+                            (is (re-find #"API key" (:message result)))
+                            (is (not (re-find #"Build artifact missing" (:message result))))
+                            (done)))))))))
+
 (deftest test-setup-lab-repo-preserves-source
   (testing "setup-lab-repo does not modify the source repo"
     (async done
