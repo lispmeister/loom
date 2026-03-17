@@ -102,7 +102,7 @@
 ;; Prompt building
 ;; ---------------------------------------------------------------------------
 
-(def ^:private system-prompt
+(def ^:private default-reflect-system-prompt
   "You are Prime's improvement planner for the Loom self-modification system.
 
 Your job: given the recent generation history and user priorities, propose the
@@ -134,6 +134,19 @@ Your output MUST follow this structure:
   stability or quality improvement (better tests, error handling, docs).
 - The Lab has access to: read_file, write_file, edit_file, bash.
   It works in a copy of the repo and its changes are verified before promotion.")
+
+(defn load-reflect-system-prompt
+  "Load the reflect system prompt from templates/reflect-system.md relative to
+   the given base directory. Falls back to the embedded default if the file is
+   missing or unreadable."
+  [base-dir]
+  (try
+    (let [template-path (.join path base-dir "templates" "reflect-system.md")]
+      (.readFileSync fs template-path "utf8"))
+    (catch :default _e default-reflect-system-prompt)))
+
+(def ^:private system-prompt
+  (load-reflect-system-prompt (.resolve path ".")))
 
 (defn- format-gen-entry
   "Format a single generation entry for the prompt."
@@ -203,9 +216,14 @@ Your output MUST follow this structure:
 
 (defn build-reflect-prompt
   "Build the system + user messages for the reflect LLM call.
-   Returns {:system str :messages [{:role \"user\" :content str}]}"
+   Returns {:system str :messages [{:role \"user\" :content str}]}
+   Accepts an optional :base-dir in context to load the system prompt template
+   from a specific directory (useful for testing)."
   [context]
-  (let [{:keys [priorities generations latest-gen fitness-config codebase]} context
+  (let [{:keys [priorities generations latest-gen fitness-config codebase base-dir]} context
+        loaded-system (if base-dir
+                        (load-reflect-system-prompt base-dir)
+                        system-prompt)
         priorities-section (if priorities
                              (str "## User Priorities\n\n" priorities)
                              "## User Priorities\n\nNo priorities file found. Focus on stability improvements: better test coverage, error handling, or code quality.")
@@ -227,7 +245,7 @@ Your output MUST follow this structure:
                                  fitness-section  (conj fitness-section)
                                  codebase-section (conj codebase-section)
                                  true (conj "Respond with ONLY the program.md content. No preamble, no explanation.")))]
-    {:system   system-prompt
+    {:system   loaded-system
      :messages [{:role "user" :content user-content}]}))
 
 ;; ---------------------------------------------------------------------------

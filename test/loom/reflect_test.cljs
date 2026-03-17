@@ -143,6 +143,51 @@
       (is (nil? (:loop-system-prompt summary))))))
 
 ;; ---------------------------------------------------------------------------
+;; load-reflect-system-prompt tests
+;; ---------------------------------------------------------------------------
+
+(deftest load-reflect-system-prompt-from-file-test
+  (testing "loads from templates/reflect-system.md when present (real repo)"
+    ;; The real repo has the template file; loading from PWD should succeed.
+    (let [repo-root (.. js/process -env -PWD)
+          loaded    (reflect/load-reflect-system-prompt repo-root)]
+      (is (string? loaded))
+      (is (seq loaded))
+      ;; Should contain key phrases from the template
+      (is (re-find #"program\.md" loaded))
+      (is (re-find #"small and focused" loaded)))))
+
+(deftest load-reflect-system-prompt-fallback-test
+  (testing "falls back to embedded default when template file is missing"
+    (let [loaded (reflect/load-reflect-system-prompt "/nonexistent/path/that/does/not/exist")]
+      (is (string? loaded))
+      (is (seq loaded))
+      ;; Fallback default must still contain key phrases
+      (is (re-find #"program\.md" loaded))
+      (is (re-find #"Do NOT repeat" loaded)))))
+
+(deftest build-reflect-prompt-uses-template-base-dir-test
+  (testing "build-reflect-prompt loads system prompt from :base-dir when provided"
+    (let [repo-root (.. js/process -env -PWD)
+          context   {:priorities  "## 1. Test"
+                     :generations []
+                     :latest-gen  nil
+                     :base-dir    repo-root}
+          prompt    (reflect/build-reflect-prompt context)]
+      (is (string? (:system prompt)))
+      ;; System prompt from template should include expected content
+      (is (re-find #"program\.md" (:system prompt))))))
+
+(deftest build-reflect-prompt-uses-fallback-when-no-base-dir-test
+  (testing "build-reflect-prompt uses module-level system-prompt when no :base-dir"
+    (let [context {:priorities  nil
+                   :generations []
+                   :latest-gen  nil}
+          prompt  (reflect/build-reflect-prompt context)]
+      (is (string? (:system prompt)))
+      (is (re-find #"program\.md" (:system prompt))))))
+
+;; ---------------------------------------------------------------------------
 ;; reflect-and-propose error handling
 ;; ---------------------------------------------------------------------------
 
