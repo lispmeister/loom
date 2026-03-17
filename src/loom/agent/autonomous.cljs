@@ -377,88 +377,96 @@
                                     (:failed @state) " failed"))
                       (js/Promise.resolve (assoc @state :stop-reason stop-reason)))
 
-                  ;; Run one cycle
-                  (-> (run-cycle repo lookback)
-                      (.then (fn [result]
+                  (do
+                    ;; Sync promotable state so promote-generation can serialize it.
+                    (reset! sm/promotable-prime-state
+                            {:generation-count (:generations-run @state)
+                             :promoted-count   (:promoted @state)
+                             :rolled-back      (:rolled-back @state)
+                             :total-tokens     (:total-tokens @state)
+                             :recent-scores    (:recent-scores @state)})
+                    ;; Run one cycle
+                    (-> (run-cycle repo lookback)
+                        (.then (fn [result]
                                ;; Read token usage from the generation report (Lab-side)
-                               (let [gen             (:generation result)
-                                     report          (when gen (reflect/read-report repo gen))
-                                     tok-usage       (or (:token-usage report) {:input 0 :output 0})
-                                     gen-tokens      (+ (:input tok-usage 0) (:output tok-usage 0))
+                                 (let [gen             (:generation result)
+                                       report          (when gen (reflect/read-report repo gen))
+                                       tok-usage       (or (:token-usage report) {:input 0 :output 0})
+                                       gen-tokens      (+ (:input tok-usage 0) (:output tok-usage 0))
                                      ;; Reflect-step token usage
-                                     reflect-tok     (:reflect-token-usage result)
-                                     reflect-tokens  (+ (:input reflect-tok 0) (:output reflect-tok 0))
+                                       reflect-tok     (:reflect-token-usage result)
+                                       reflect-tokens  (+ (:input reflect-tok 0) (:output reflect-tok 0))
                                      ;; LLM review token usage (stored in last-verification atom)
-                                     verification    @sm/last-verification
-                                     review-tok      (when (and verification (= gen (:generation verification)))
-                                                       (:review-token-usage verification))
-                                     review-tokens   (+ (:input review-tok 0) (:output review-tok 0))
+                                       verification    @sm/last-verification
+                                       review-tok      (when (and verification (= gen (:generation verification)))
+                                                         (:review-token-usage verification))
+                                       review-tokens   (+ (:input review-tok 0) (:output review-tok 0))
                                      ;; Total tokens this cycle
-                                     cycle-tokens    (+ gen-tokens reflect-tokens review-tokens)
-                                     test-res        (:test-results result)
-                                     score           (when test-res
-                                                       (fitness/fitness-score
-                                                        {:test-results test-res
-                                                         :token-usage  tok-usage}))]
+                                       cycle-tokens    (+ gen-tokens reflect-tokens review-tokens)
+                                       test-res        (:test-results result)
+                                       score           (when test-res
+                                                         (fitness/fitness-score
+                                                          {:test-results test-res
+                                                           :token-usage  tok-usage}))]
 
                                  ;; Update state
-                                 (swap! state (fn [s]
-                                                (let [outcome-key (case (:outcome result)
-                                                                    :promoted    :promoted
-                                                                    :rolled-back :rolled-back
-                                                                    :failed)]
-                                                  (let [s1 (-> s
-                                                               (update :generations-run inc)
-                                                               (update :total-tokens + cycle-tokens)
-                                                               (update outcome-key inc))]
-                                                    (if (and score (= :promoted (:outcome result)))
-                                                      (update s1 :recent-scores conj score)
-                                                      s1)))))
+                                   (swap! state (fn [s]
+                                                  (let [outcome-key (case (:outcome result)
+                                                                      :promoted    :promoted
+                                                                      :rolled-back :rolled-back
+                                                                      :failed)]
+                                                    (let [s1 (-> s
+                                                                 (update :generations-run inc)
+                                                                 (update :total-tokens + cycle-tokens)
+                                                                 (update outcome-key inc))]
+                                                      (if (and score (= :promoted (:outcome result)))
+                                                        (update s1 :recent-scores conj score)
+                                                        s1)))))
 
                                  ;; Log to fitness log
-                                 (append-fitness-log repo
-                                                     {:generation          gen
-                                                      :outcome             (name (or (:outcome result) :unknown))
-                                                      :fitness-score       score
-                                                      :tests-run           (:tests-run test-res)
-                                                      :assertions          (:assertions test-res)
-                                                      :token-usage         tok-usage
-                                                      :reflect-token-usage reflect-tok
-                                                      :review-token-usage  review-tok
-                                                      :promoted?           (= :promoted (:outcome result))
-                                                      :failure-reason      (:failure-reason result)
-                                                      :cycle-duration-ms   (get-in result [:timing :total-ms])
-                                                      :phase-timing        (:timing result)
-                                                      :program-summary     (:program-summary result)
-                                                      :program-md-hash     (program-md-hash (:program-md result))
-                                                      :task-type           (infer-task-type (:program-md result))
-                                                      :timestamp           (.toISOString (js/Date.))})
+                                   (append-fitness-log repo
+                                                       {:generation          gen
+                                                        :outcome             (name (or (:outcome result) :unknown))
+                                                        :fitness-score       score
+                                                        :tests-run           (:tests-run test-res)
+                                                        :assertions          (:assertions test-res)
+                                                        :token-usage         tok-usage
+                                                        :reflect-token-usage reflect-tok
+                                                        :review-token-usage  review-tok
+                                                        :promoted?           (= :promoted (:outcome result))
+                                                        :failure-reason      (:failure-reason result)
+                                                        :cycle-duration-ms   (get-in result [:timing :total-ms])
+                                                        :phase-timing        (:timing result)
+                                                        :program-summary     (:program-summary result)
+                                                        :program-md-hash     (program-md-hash (:program-md result))
+                                                        :task-type           (infer-task-type (:program-md result))
+                                                        :timestamp           (.toISOString (js/Date.))})
 
                                  ;; Log to lessons log
-                                 (let [outcome-str  (name (or (:outcome result) :unknown))
-                                       lesson-fields (derive-lesson-fields
-                                                      {:outcome       outcome-str
-                                                       :failure-reason (:failure-reason result)
-                                                       :test-results   test-res})]
-                                   (append-lesson repo
-                                                  {:generation        gen
-                                                   :outcome           outcome-str
-                                                   :failure-reason    (:failure-reason result)
-                                                   :task-summary      (:program-summary result)
-                                                   :cycle-duration-ms (get-in result [:timing :total-ms])
-                                                   :what-worked       (:what-worked lesson-fields)
-                                                   :what-didnt        (:what-didnt lesson-fields)
-                                                   :timestamp         (.toISOString (js/Date.))}))
+                                   (let [outcome-str  (name (or (:outcome result) :unknown))
+                                         lesson-fields (derive-lesson-fields
+                                                        {:outcome       outcome-str
+                                                         :failure-reason (:failure-reason result)
+                                                         :test-results   test-res})]
+                                     (append-lesson repo
+                                                    {:generation        gen
+                                                     :outcome           outcome-str
+                                                     :failure-reason    (:failure-reason result)
+                                                     :task-summary      (:program-summary result)
+                                                     :cycle-duration-ms (get-in result [:timing :total-ms])
+                                                     :what-worked       (:what-worked lesson-fields)
+                                                     :what-didnt        (:what-didnt lesson-fields)
+                                                     :timestamp         (.toISOString (js/Date.))}))
 
-                                 (println (str "[autonomous] Cycle complete: gen=" gen
-                                               " outcome=" (name (or (:outcome result) :unknown))
-                                               (when score (str " fitness=" (.toFixed score 1)))
-                                               " total-tokens=" (:total-tokens @state))))))
-                      (.catch (fn [err]
-                                (println (str "[autonomous] Cycle error: " (.-message err)))
-                                (swap! state (fn [s]
-                                               (-> s
-                                                   (update :generations-run inc)
-                                                   (update :failed inc))))))
-                      (.then (fn [_] (loop-step)))))))]
+                                   (println (str "[autonomous] Cycle complete: gen=" gen
+                                                 " outcome=" (name (or (:outcome result) :unknown))
+                                                 (when score (str " fitness=" (.toFixed score 1)))
+                                                 " total-tokens=" (:total-tokens @state))))))
+                        (.catch (fn [err]
+                                  (println (str "[autonomous] Cycle error: " (.-message err)))
+                                  (swap! state (fn [s]
+                                                 (-> s
+                                                     (update :generations-run inc)
+                                                     (update :failed inc))))))
+                        (.then (fn [_] (loop-step))))))))]
       (loop-step))))

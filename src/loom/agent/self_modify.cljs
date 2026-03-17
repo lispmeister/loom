@@ -3,6 +3,7 @@
   (:require [clojure.string :as str]
             [loom.shared.http-client :as client]
             [loom.agent.claude :as claude]
+            [loom.agent.state :as state]
             ["node:fs" :as fs]
             ["node:path" :as path]))
 
@@ -64,6 +65,11 @@
 ;; Defined early because promote/rollback read it to include in reports.
 (defonce last-verification (atom nil))
 
+;; Atom to store Prime state for serialization at promotion time.
+;; Callers (core, autonomous) update this before triggering a promote.
+;; Keys: :conversation-history, :generation-count, :promoted-count, and any other counters.
+(defonce promotable-prime-state (atom {}))
+
 ;; ---------------------------------------------------------------------------
 ;; Tool implementations
 ;; ---------------------------------------------------------------------------
@@ -94,7 +100,9 @@
 (defn promote-generation
   "Promote a Lab generation: merge branch into main, tag, delete branch.
    POSTs to Supervisor /promote. Includes verification data from last-verification
-   atom so the report contains test-results, diff-stats, and LLM verdict."
+   atom so the report contains test-results, diff-stats, and LLM verdict.
+   On success, serializes Prime state via state/serialize-state so the next
+   generation can resume where this one left off."
   [{:keys [generation]}]
   (let [verification @last-verification
         body (cond-> {:generation generation}
@@ -105,8 +113,10 @@
                  (if (:error result)
                    (str "Error promoting generation " generation ": "
                         (or (:message result) (pr-str result)))
-                   (str "Generation " generation " promoted successfully.\n"
-                        "Status: " (:status result))))))))
+                   (do
+                     (state/serialize-state @promotable-prime-state)
+                     (str "Generation " generation " promoted successfully.\n"
+                          "Status: " (:status result)))))))))
 
 (defn rollback-generation
   "Rollback a Lab generation: discard branch, mark as failed.

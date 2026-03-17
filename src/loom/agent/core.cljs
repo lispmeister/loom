@@ -3,6 +3,7 @@
   (:require [loom.agent.loop :as loop]
             [loom.agent.http :as agent-http]
             [loom.agent.cli :as cli]
+            [loom.agent.self-modify :as sm]
             [loom.shared.http :as http]))
 
 (defonce state
@@ -36,6 +37,11 @@
       (.then (fn [{:keys [agent response]}]
                (reset! agent-state agent)
                (swap! state assoc :status :idle)
+               ;; Keep promotable state current so promote-generation can serialize it.
+               (reset! sm/promotable-prime-state
+                       {:conversation-history (:messages agent)
+                        :messages-count       (:messages-count @state)
+                        :tool-calls-count     (:tool-calls-count @state)})
                (let [text (or (some-> response :error :message)
                               (some->> (:content response)
                                        (filter #(= "text" (:type %)))
