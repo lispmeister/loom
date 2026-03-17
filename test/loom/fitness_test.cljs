@@ -99,3 +99,40 @@
           result (fitness/improved? current previous)]
       (is (false? (:improved? result)))
       (is (false? (:safe? result))))))
+
+(deftest user-task-success-rate-empty-test
+  (testing "empty entries returns total=0 promoted=0 rate=nil"
+    (let [result (fitness/user-task-success-rate [])]
+      (is (= 0 (:total result)))
+      (is (= 0 (:promoted result)))
+      (is (nil? (:rate result))))))
+
+(deftest user-task-success-rate-all-promoted-test
+  (testing "all promoted entries gives rate of 1.0"
+    (let [entries [{:generation 1 :promoted? true}
+                   {:generation 2 :promoted? true}
+                   {:generation 3 :promoted? true}]
+          result  (fitness/user-task-success-rate entries)]
+      (is (= 3 (:total result)))
+      (is (= 3 (:promoted result)))
+      (is (= 1 (:rate result))))))
+
+(deftest user-task-success-rate-none-promoted-test
+  (testing "no promoted entries gives rate of 0"
+    (let [entries [{:generation 1 :promoted? false}
+                   {:generation 2 :promoted? false}]
+          result  (fitness/user-task-success-rate entries)]
+      (is (= 2 (:total result)))
+      (is (= 0 (:promoted result)))
+      (is (= 0 (:rate result))))))
+
+(deftest user-task-success-rate-mixed-test
+  (testing "mixed entries gives correct fractional rate"
+    (let [entries [{:generation 1 :promoted? true}
+                   {:generation 2 :promoted? false}
+                   {:generation 3 :promoted? true}
+                   {:generation 4 :promoted? false}]
+          result  (fitness/user-task-success-rate entries)]
+      (is (= 4 (:total result)))
+      (is (= 2 (:promoted result)))
+      (is (= 0.5 (double (:rate result)))))))

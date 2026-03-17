@@ -78,6 +78,18 @@
      (- (+ (* tests test-weight) (* assertions assertion-weight))
         (/ tokens token-penalty-divisor)))))
 
+(defn user-task-success-rate
+  "Given a vector of fitness log entries already filtered to user-source generations,
+   count promoted vs total and return the success rate.
+   Returns {:total N :promoted N :rate float-or-nil}.
+   Rate is nil when total is 0 (avoids division by zero)."
+  [entries]
+  (let [total    (count entries)
+        promoted (count (filter :promoted? entries))]
+    {:total    total
+     :promoted promoted
+     :rate     (when (pos? total) (/ promoted total))}))
+
 (defn improved?
   "Is this generation an improvement over the previous one?
    Returns {:improved? bool :current-score N :previous-score N :safe? bool :reason \"...\"}."

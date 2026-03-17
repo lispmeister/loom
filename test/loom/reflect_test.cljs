@@ -350,6 +350,73 @@
       (is (not (re-find #"User Friction" user-msg))))))
 
 ;; ---------------------------------------------------------------------------
+;; user-success-rate in build-reflect-prompt tests
+;; ---------------------------------------------------------------------------
+
+(deftest build-reflect-prompt-includes-success-rate-when-present-test
+  (testing "state section includes user task success rate when user-success-rate has data"
+    (let [context {:priorities        "## 1. Fix bug"
+                   :generations       [{:generation 1 :outcome :promoted
+                                        :program-md "# Task\nFix it" :report nil :fitness-score nil}]
+                   :latest-gen        1
+                   :user-success-rate {:total 4 :promoted 3 :rate 0.75}}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (re-find #"User task success rate" user-msg))
+      (is (re-find #"3/4" user-msg))
+      (is (re-find #"75%" user-msg)))))
+
+(deftest build-reflect-prompt-omits-success-rate-when-nil-test
+  (testing "state section omits user task success rate when user-success-rate is nil"
+    (let [context {:priorities  "## 1. Fix bug"
+                   :generations [{:generation 1 :outcome :promoted
+                                  :program-md "# Task\nFix it" :report nil :fitness-score nil}]
+                   :latest-gen  1}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (not (re-find #"User task success rate" user-msg))))))
+
+(deftest build-reflect-prompt-omits-success-rate-when-total-zero-test
+  (testing "state section omits user task success rate when total is 0"
+    (let [context {:priorities        "## 1. Fix bug"
+                   :generations       [{:generation 1 :outcome :promoted
+                                        :program-md "# Task\nFix it" :report nil :fitness-score nil}]
+                   :latest-gen        1
+                   :user-success-rate {:total 0 :promoted 0 :rate nil}}
+          prompt (reflect/build-reflect-prompt context)
+          user-msg (:content (first (:messages prompt)))]
+      (is (not (re-find #"User task success rate" user-msg))))))
+
+;; ---------------------------------------------------------------------------
+;; read-fitness-log tests
+;; ---------------------------------------------------------------------------
+
+(deftest read-fitness-log-roundtrip-test
+  (testing "read-fitness-log reads fitness-log.jsonl and returns all entries"
+    (let [dir (.mkdtempSync fs (.join path (.tmpdir os) "loom-fitness-log-test-"))
+          tmp (.join path dir "tmp")]
+      (.mkdirSync fs tmp #js {:recursive true})
+      (let [filepath (.join path tmp "fitness-log.jsonl")]
+        (.writeFileSync fs filepath
+                        (str (js/JSON.stringify #js {:generation 1 :promoted? true  :outcome "promoted"}) "\n"
+                             (js/JSON.stringify #js {:generation 2 :promoted? false :outcome "rolled-back"}) "\n"
+                             (js/JSON.stringify #js {:generation 3 :promoted? true  :outcome "promoted"}) "\n")
+                        "utf8"))
+      (let [entries (reflect/read-fitness-log dir)]
+        (is (= 3 (count entries)))
+        (is (= 1 (:generation (first entries))))
+        (is (true? (:promoted? (first entries))))
+        (is (= 2 (:generation (second entries))))
+        (is (false? (:promoted? (second entries)))))
+      (.rmSync fs dir #js {:recursive true :force true}))))
+
+(deftest read-fitness-log-missing-file-test
+  (testing "read-fitness-log returns empty vec when file doesn't exist"
+    (let [entries (reflect/read-fitness-log "/nonexistent/path")]
+      (is (vector? entries))
+      (is (empty? entries)))))
+
+;; ---------------------------------------------------------------------------
 ;; reflect-and-propose error handling
 ;; ---------------------------------------------------------------------------
 

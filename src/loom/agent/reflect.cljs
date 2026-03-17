@@ -67,6 +67,20 @@
   (when report
     (fitness/fitness-score report (fitness/current-config))))
 
+(defn read-fitness-log
+  "Read tmp/fitness-log.jsonl from repo. Returns a vector of maps, or []."
+  [repo]
+  (let [filepath (.join path repo "tmp" "fitness-log.jsonl")
+        content  (read-file-safe filepath)]
+    (if content
+      (try
+        (let [lines (filter seq (str/split-lines content))]
+          (mapv (fn [line]
+                  (js->clj (js/JSON.parse line) :keywordize-keys true))
+                lines))
+        (catch :default _e []))
+      [])))
+
 (defn read-lessons
   "Read the last N entries from tmp/lessons.jsonl. Returns a vector of maps, or []."
   [repo n]
@@ -121,7 +135,8 @@
             :lessons [{:generation N :outcome str :what-worked str :what-didnt str ...} ...]
             :codebase {:fitness-fn str-or-nil :tool-definitions str-or-nil
                        :reflect-prompt str-or-nil :loop-system-prompt str-or-nil}
-            :user-friction [{:generation N :task-summary str :failure-reason str} ...]}"
+            :user-friction [{:generation N :task-summary str :failure-reason str} ...]
+            :user-success-rate {:total N :promoted N :rate float-or-nil}-or-nil}"
   [repo lookback]
   (let [priorities     (read-priorities repo)
         all-gens       (read-generations repo)
@@ -140,14 +155,26 @@
         latest         (when (seq all-gens)
                          (:generation (last all-gens)))
         fitness-config (fitness/current-config)
-        lessons        (read-lessons repo 5)]
-    {:priorities     priorities
-     :generations    enriched
-     :latest-gen     latest
-     :fitness-config fitness-config
-     :lessons        lessons
-     :codebase       (gather-codebase-summary repo)
-     :user-friction  (extract-user-friction enriched)}))
+        lessons        (read-lessons repo 5)
+        fitness-log    (read-fitness-log repo)
+        ;; User-source entries are those where :source is "user" in the fitness log.
+        ;; The fitness log does not currently record :source, so we approximate by
+        ;; cross-referencing with the full generations list (which has :source).
+        gen-source-map (into {} (map (fn [g] [(:generation g) (:source g)]) all-gens))
+        user-log-entries (filter (fn [entry]
+                                   (let [src (get gen-source-map (:generation entry))]
+                                     (or (= src :user) (= src "user"))))
+                                 fitness-log)
+        user-success-rate (when (seq user-log-entries)
+                            (fitness/user-task-success-rate user-log-entries))]
+    {:priorities        priorities
+     :generations       enriched
+     :latest-gen        latest
+     :fitness-config    fitness-config
+     :lessons           lessons
+     :codebase          (gather-codebase-summary repo)
+     :user-friction     (extract-user-friction enriched)
+     :user-success-rate user-success-rate}))
 
 ;; ---------------------------------------------------------------------------
 ;; Prompt building
@@ -294,7 +321,8 @@ Your output MUST follow this structure:
    Accepts an optional :base-dir in context to load the system prompt template
    from a specific directory (useful for testing)."
   [context]
-  (let [{:keys [priorities generations latest-gen fitness-config lessons codebase base-dir user-friction]} context
+  (let [{:keys [priorities generations latest-gen fitness-config lessons codebase base-dir
+                user-friction user-success-rate]} context
         loaded-system (if base-dir
                         (load-reflect-system-prompt base-dir)
                         system-prompt)
@@ -305,11 +333,17 @@ Your output MUST follow this structure:
                           (str "## Recent Generation History\n\n"
                                (str/join "\n" (map format-gen-entry generations)))
                           "## Recent Generation History\n\nNo previous generations. This is the first run — propose an initial task based on the priorities above.")
+        success-rate-line (when (and user-success-rate (pos? (:total user-success-rate)))
+                            (let [{:keys [total promoted rate]} user-success-rate
+                                  pct (-> (* rate 100) (.toFixed 0))]
+                              (str "User task success rate: " promoted "/" total " (" pct "%)\n")))
         state-section (str "## Current State\n\n"
                            (if latest-gen
                              (str "Latest generation: " latest-gen "\n"
-                                  "Latest outcome: " (name (:outcome (last generations))) "\n")
-                             "No generations have run yet.\n"))
+                                  "Latest outcome: " (name (:outcome (last generations))) "\n"
+                                  (or success-rate-line ""))
+                             (str "No generations have run yet.\n"
+                                  (or success-rate-line ""))))
         fitness-section       (format-fitness-config-section fitness-config)
         lessons-section       (when (seq lessons)
                                 (str "## Recent Lessons\n\n"
