@@ -17,6 +17,8 @@
          :progress ""
          :error    nil}))
 
+(defonce tool-stats (atom {}))
+
 ;; ---------------------------------------------------------------------------
 ;; Git helpers
 ;; ---------------------------------------------------------------------------
@@ -51,7 +53,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- status-handler [_req]
-  (http/json-response 200 @state))
+  (http/json-response 200 (assoc @state :tool-stats @tool-stats)))
 
 (defn- start-status-server
   "Start HTTP server with GET /status. Returns promise of server."
@@ -73,9 +75,15 @@
     :tool-calls (do (println (str "[tools] " (pr-str (mapv :name (:calls event)))))
                     (swap! state assoc :progress
                            (str "Using tools: "
-                                (pr-str (mapv :name (:calls event))))))
-    :tool-result (println (str "[result] tool=" (:tool-id event)
-                               " error?=" (:error? event)))
+                                (pr-str (mapv :name (:calls event)))))
+                    (doseq [tc (:calls event)]
+                      (swap! tool-stats update (:name tc)
+                             (fn [s] (update (or s {:calls 0 :errors 0}) :calls inc)))))
+    :tool-result (do (println (str "[result] tool=" (:tool-id event)
+                                   " error?=" (:error? event)))
+                     (when (:error? event)
+                       (swap! tool-stats update (:tool-id event)
+                              (fn [s] (update (or s {:calls 0 :errors 0}) :errors inc)))))
     :error      (do (println (str "[error] " (pr-str (:error event))))
                     (swap! state assoc :progress
                            (str "Error: " (pr-str (:error event)))))
