@@ -22,6 +22,5 @@ generations.edn
 tmp/
 .beads/.beads-credential-key
 
-# Loom Lab runtime artifacts
+# Loom Lab runtime artifact (compiled binary, not needed in git)
 lab-worker.js
-program.md
