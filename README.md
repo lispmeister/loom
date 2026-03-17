@@ -1,8 +1,17 @@
 # Loom — Recursive Self-Improving Agent
 
+[![CI](https://github.com/lispmeister/loom/actions/workflows/ci.yml/badge.svg)](https://github.com/lispmeister/loom/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![ClojureScript](https://img.shields.io/badge/ClojureScript-Node.js-green.svg)](https://clojurescript.org/)
+[![Claude API](https://img.shields.io/badge/LLM-Claude%20API-blueviolet.svg)](https://docs.anthropic.com/)
+
 Loom is a self-modifying coding agent written in pure ClojureScript. It runs in Apple containers (VM-level isolation), can rewrite its own code, test modifications in an isolated Lab container, and promote successful changes.
 
 The architecture is described in a series of blog posts — see [References](#references) below.
+
+<p align="center">
+  <img src="loom-architecture.svg" alt="Loom Architecture — Prime, Supervisor, and Lab interaction" width="800">
+</p>
 
 ## Architecture
 
@@ -241,4 +250,4 @@ node out/agent.js autonomous
 
 ## License
 
-All rights reserved.
+[MIT](LICENSE) — see [LICENSE](LICENSE) for details.

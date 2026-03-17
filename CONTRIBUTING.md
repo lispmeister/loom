@@ -1,5 +1,7 @@
 # Contributing to Loom
 
+Thanks for your interest in contributing to Loom!
+
 ## Prerequisites
 
 - macOS 26+ on Apple Silicon
@@ -149,6 +151,14 @@ Do not add task lists to markdown files. Create a bead instead.
 
 Periodic reviews are stored in [`architecture-reviews/`](architecture-reviews/). These assess the state of the codebase, identify risks, and generate actionable beads.
 
+## Pull Request Guidelines
+
+1. **Create an issue first** for non-trivial changes
+2. **Write tests** for new functionality
+3. **Run the full test suite** before submitting
+4. **Keep PRs focused** — one logical change per PR
+5. **Don't modify Malli schemas** in `src/loom/shared/schemas.cljs` without discussion — these are the fixed-point contracts
+
 ## Code Style
 
 - Pure ClojureScript — no Java interop, no JVM dependencies
@@ -156,3 +166,7 @@ Periodic reviews are stored in [`architecture-reviews/`](architecture-reviews/).
 - Keep functions small; prefer data transformation over side effects
 - Errors resolve as `{:error true :message "..."}` — never thrown
 - Format with cljfmt (auto-applied by Claude Code hook)
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
