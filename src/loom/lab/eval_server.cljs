@@ -9,6 +9,64 @@
             [cljs.reader :as reader]
             [cognitect.transit :as transit]))
 
+;; -- Response size/depth guards --
+
+(def default-max-response-size (* 64 1024)) ; 64 KB
+(def default-max-depth 10)
+
+(defn measure-depth
+  "Return the maximum nesting depth of value v (maps, vectors, lists, sets)."
+  [v]
+  (cond
+    (map? v)
+    (if (empty? v)
+      1
+      (+ 1 (apply max (map (fn [[k val]]
+                             (max (measure-depth k) (measure-depth val)))
+                           v))))
+    (coll? v)
+    (if (empty? v)
+      1
+      (+ 1 (apply max (map measure-depth v))))
+    :else
+    0))
+
+(defn truncate-depth
+  "Walk value v, replacing any node deeper than max-depth with a sentinel string."
+  [v current-depth max-depth]
+  (if (>= current-depth max-depth)
+    (str "<truncated at depth " current-depth ">")
+    (cond
+      (map? v)
+      (into {} (map (fn [[k val]]
+                      [(truncate-depth k (inc current-depth) max-depth)
+                       (truncate-depth val (inc current-depth) max-depth)])
+                    v))
+      (vector? v)
+      (mapv #(truncate-depth % (inc current-depth) max-depth) v)
+      (set? v)
+      (into #{} (map #(truncate-depth % (inc current-depth) max-depth) v))
+      (seq? v)
+      (map #(truncate-depth % (inc current-depth) max-depth) v)
+      :else
+      v)))
+
+(defn truncate-value
+  "Guard an EvalResponse :value against size and depth limits.
+   Returns possibly-modified value, or a truncation message string."
+  [value
+   & {:keys [max-size max-depth]
+      :or {max-size default-max-response-size
+           max-depth default-max-depth}}]
+  (let [depth-checked (if (> (measure-depth value) max-depth)
+                        (truncate-depth value 0 max-depth)
+                        value)
+        serialized (pr-str depth-checked)
+        size (.-length serialized)]
+    (if (> size max-size)
+      (str "<value truncated: serialized size " size " bytes exceeds limit " max-size ">")
+      depth-checked)))
+
 (def fs (js/require "node:fs"))
 (def net (js/require "node:net"))
 
@@ -43,7 +101,7 @@
         (fn [result]
           (if (:error result)
             (resolve {:status :error :message (str (:error result))})
-            (resolve {:status :ok :value (:value result)}))))
+            (resolve {:status :ok :value (truncate-value (:value result))}))))
        (catch :default e
          (resolve {:status :error :message (str e)}))))))
 
