@@ -1,0 +1,3 @@
+{:test-weight 10
+ :assertion-weight 1
+ :token-penalty-divisor 1000}

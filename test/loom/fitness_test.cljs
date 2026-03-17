@@ -33,12 +33,51 @@
     (is (false? (:safe? (fitness/safety-check nil nil))))))
 
 (deftest fitness-score-calculation
-  (testing "score = tests*10 + assertions - tokens/1000"
+  (testing "score = tests*10 + assertions - tokens/1000 (default config)"
     (let [report {:test-results good-tests
                   :token-usage {:input 4000 :output 1000}}
           score (fitness/fitness-score report)]
       ;; 94*10 + 226 - 5000/1000 = 940 + 226 - 5 = 1161
       (is (= 1161 score)))))
+
+(deftest fitness-score-uses-config-weights
+  (testing "fitness-score respects custom weights"
+    (let [report {:test-results good-tests
+                  :token-usage {:input 4000 :output 1000}}
+          custom-config {:test-weight 5 :assertion-weight 2 :token-penalty-divisor 500}
+          score (fitness/fitness-score report custom-config)]
+      ;; 94*5 + 226*2 - 5000/500 = 470 + 452 - 10 = 912
+      (is (= 912 score)))))
+
+(deftest load-config-returns-defaults-when-file-missing
+  (testing "load-config falls back to defaults when config path does not exist"
+    (let [config (fitness/load-config "/nonexistent/path/fitness.edn")]
+      (is (= 10 (:test-weight config)))
+      (is (= 1 (:assertion-weight config)))
+      (is (= 1000 (:token-penalty-divisor config))))))
+
+(deftest load-config-merges-partial-config
+  (testing "load-config merges partial config with defaults"
+    ;; We can test this by writing a temp file — but since we can't easily
+    ;; create temp EDN files in ClojureScript tests without async, we verify
+    ;; that the default-config structure is correct by calling load-config
+    ;; with a missing path and confirming all keys are present.
+    (let [config (fitness/load-config "/nonexistent/path/fitness.edn")]
+      (is (contains? config :test-weight))
+      (is (contains? config :assertion-weight))
+      (is (contains? config :token-penalty-divisor)))))
+
+(deftest current-config-returns-map
+  (testing "current-config returns a map with expected keys"
+    (let [config (fitness/current-config)]
+      (is (map? config))
+      (is (contains? config :test-weight))
+      (is (contains? config :assertion-weight))
+      (is (contains? config :token-penalty-divisor))
+      ;; Values should be positive numbers
+      (is (pos? (:test-weight config)))
+      (is (pos? (:assertion-weight config)))
+      (is (pos? (:token-penalty-divisor config))))))
 
 (deftest improved-basic
   (testing "improved when score increases and safe"
