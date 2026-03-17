@@ -107,6 +107,24 @@
     (catch :default e
       (js/console.warn "Failed to write generation report:" (.-message e)))))
 
+(defn update-generation-report
+  "Merge additional data into an existing gen-N-report.json.
+   Creates the file if it doesn't exist. Best-effort — never throws."
+  [programs-dir gen-num updates]
+  (try
+    (when-not (.existsSync fs programs-dir)
+      (.mkdirSync fs programs-dir #js {:recursive true}))
+    (let [filepath (.join path-mod programs-dir (str "gen-" gen-num "-report.json"))
+          existing (try
+                     (js->clj (js/JSON.parse (.readFileSync fs filepath "utf8")) :keywordize-keys true)
+                     (catch :default _e {}))
+          merged   (merge existing updates)]
+      (.writeFileSync fs filepath
+                      (js/JSON.stringify (clj->js merged) nil 2)
+                      "utf8"))
+    (catch :default e
+      (js/console.warn "Failed to update generation report:" (.-message e)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Lab status polling
 ;; ---------------------------------------------------------------------------

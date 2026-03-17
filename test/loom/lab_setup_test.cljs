@@ -108,6 +108,46 @@
                            (is false (str "Unexpected: " err))
                            (done))))))))
 
+;; -- update-generation-report tests --
+
+(deftest test-update-generation-report-creates-file
+  (testing "update-generation-report creates report file if it does not exist"
+    (let [dir (.mkdtempSync fs (.join path-mod (.tmpdir os) "loom-report-"))
+          gen-num 42]
+      (lab/update-generation-report dir gen-num {:outcome "promoted" :foo "bar"})
+      (let [filepath (.join path-mod dir "gen-42-report.json")]
+        (is (.existsSync fs filepath) "report file should be created")
+        (let [data (js->clj (js/JSON.parse (.readFileSync fs filepath "utf8")) :keywordize-keys true)]
+          (is (= "promoted" (:outcome data)))
+          (is (= "bar" (:foo data)))))
+      (.rmSync fs dir #js {:recursive true :force true}))))
+
+(deftest test-update-generation-report-merges-existing
+  (testing "update-generation-report merges new data into existing report"
+    (let [dir (.mkdtempSync fs (.join path-mod (.tmpdir os) "loom-report-"))
+          gen-num 7
+          filepath (.join path-mod dir "gen-7-report.json")]
+      ;; Write initial report
+      (.writeFileSync fs filepath
+                      (js/JSON.stringify #js {:generation 7
+                                              :outcome "done"
+                                              :duration-ms 1234}
+                                         nil 2)
+                      "utf8")
+      ;; Merge in verification data
+      (lab/update-generation-report dir gen-num
+                                    {:outcome "promoted"
+                                     :verification {:tests-passed 10 :verdict "pass"}})
+      (let [data (js->clj (js/JSON.parse (.readFileSync fs filepath "utf8")) :keywordize-keys true)]
+        ;; Existing fields preserved
+        (is (= 7 (:generation data)))
+        (is (= 1234 (:duration-ms data)))
+        ;; New/overridden fields applied
+        (is (= "promoted" (:outcome data)))
+        (is (= "pass" (get-in data [:verification :verdict])))
+        (is (= 10 (get-in data [:verification :tests-passed]))))
+      (.rmSync fs dir #js {:recursive true :force true}))))
+
 (deftest test-setup-lab-repo-preserves-source
   (testing "setup-lab-repo does not modify the source repo"
     (async done
