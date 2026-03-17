@@ -14,7 +14,7 @@
    [:parent :int]
    [:branch :string]
    [:program-md-hash :string]
-   [:outcome [:enum :promoted :failed :timeout :in-progress]]
+   [:outcome [:enum :promoted :failed :timeout :in-progress :done]]
    [:created :string]
    [:completed {:optional true} :string]
    [:container-id :string]])
@@ -49,6 +49,8 @@
 (defn append-generation
   "Read existing generations, append new record, write back."
   [path generation]
+  (when-not (valid? generation)
+    (println "WARNING: append-generation received invalid generation record:" (pr-str generation)))
   (let [existing (read-generations path)]
     (write-generations path (conj existing generation))))
 
@@ -61,6 +63,9 @@
                           (merge g updates)
                           g))
                       gens)]
+    (doseq [g updated]
+      (when-not (valid? g)
+        (println "WARNING: update-generation produced invalid generation record:" (pr-str g))))
     (write-generations path updated)))
 
 (defn next-generation-number

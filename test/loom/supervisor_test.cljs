@@ -185,3 +185,11 @@
     (is (false? (gen/valid? (dissoc sample-gen :container-id))))
     (is (false? (gen/valid? (assoc sample-gen :outcome :invalid-outcome))))
     (is (true? (gen/valid? sample-gen)))))
+
+(deftest gen-validation-done-outcome
+  (testing ":done is a valid outcome"
+    (is (true? (gen/valid? (assoc sample-gen :outcome :done))))))
+
+(deftest gen-validation-bogus-outcome
+  (testing ":bogus is not a valid outcome"
+    (is (false? (gen/valid? (assoc sample-gen :outcome :bogus))))))
