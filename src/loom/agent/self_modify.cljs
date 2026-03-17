@@ -71,10 +71,12 @@
 (defn spawn-lab
   "Spawn a Lab container with a program.md task spec.
    POSTs to Supervisor /spawn, then polls Lab /status until done/failed/timeout.
-   Returns the final result — no separate polling tool call needed."
-  [{:keys [program_md]}]
+   Returns the final result — no separate polling tool call needed.
+   Optional :source key (\"user\", \"reflect\", \"cli\") is forwarded to the Supervisor."
+  [{:keys [program_md source]}]
   (-> (client/post-json (str supervisor-url "/spawn")
-                        {:program_md program_md})
+                        (cond-> {:program_md program_md}
+                          source (assoc :source source)))
       (.then (fn [result]
                (if (:error result)
                  (str "Error spawning Lab: " (:message result))

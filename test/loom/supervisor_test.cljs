@@ -185,3 +185,11 @@
     (is (false? (gen/valid? (dissoc sample-gen :container-id))))
     (is (false? (gen/valid? (assoc sample-gen :outcome :invalid-outcome))))
     (is (true? (gen/valid? sample-gen)))))
+
+(deftest gen-source-field
+  (testing "Generation schema accepts optional :source field"
+    (is (true? (gen/valid? (assoc sample-gen :source :reflect))))
+    (is (true? (gen/valid? (assoc sample-gen :source :user))))
+    (is (true? (gen/valid? (assoc sample-gen :source :cli))))
+    (is (false? (gen/valid? (assoc sample-gen :source :invalid))))
+    (is (true? (gen/valid? sample-gen)) "source is optional — omitting it still passes")))

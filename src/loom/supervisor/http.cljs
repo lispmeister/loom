@@ -167,14 +167,15 @@
     (lab/save-generation-report
      (programs-dir config) gen-num
      (merge
-      {:generation      gen-num
-       :outcome         (name outcome)
-       :branch          (:branch record)
-       :program-md-hash (:program-md-hash record)
-       :created         created
-       :completed       completed
-       :duration-ms     duration
-       :container-id    (:container-id record)}
+      (cond-> {:generation      gen-num
+               :outcome         (name outcome)
+               :branch          (:branch record)
+               :program-md-hash (:program-md-hash record)
+               :created         created
+               :completed       completed
+               :duration-ms     duration
+               :container-id    (:container-id record)}
+        (:source record) (assoc :source (name (:source record))))
       extra-data))))
 
 (defn- handle-spawn
@@ -187,6 +188,7 @@
   (let [body       (js->clj (http/read-json-body req) :keywordize-keys true)
         program-md (:program_md body)
         parent-gen (or (:parent_generation body) 0)
+        source     (keyword (or (:source body) "cli"))
         gens-path  (:generations-path config)
         repo-path  (:repo-path config)
         gen-num    (gen/next-generation-number gens-path)
@@ -270,7 +272,8 @@
                                              :outcome         :failed
                                              :created         now
                                              :completed       (.toISOString (js/Date.))
-                                             :container-id    ""})
+                                             :container-id    ""
+                                             :source          source})
                      (emit-log "spawn" {:generation gen-num :status "failed"
                                         :error (:message result)})
                      (http/json-response 500 {:error (:message result)}))
@@ -287,7 +290,8 @@
                                              :program-md-hash hash
                                              :outcome         :in-progress
                                              :created         now
-                                             :container-id    (or (:container-id result) "")})
+                                             :container-id    (or (:container-id result) "")
+                                             :source          source})
                      (emit-log "spawn" {:generation gen-num :status "spawned"
                                         :container (:container-name result)
                                         :port (:host-port result)})
