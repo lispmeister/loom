@@ -17,7 +17,8 @@
    [:outcome [:enum :promoted :failed :timeout :in-progress :done]]
    [:created :string]
    [:completed {:optional true} :string]
-   [:container-id :string]])
+   [:container-id :string]
+   [:source {:optional true} [:enum :user :reflect :cli]]])
 
 (defn valid?
   "Return true if record matches the Generation schema."

@@ -119,7 +119,7 @@
                  {:generation nil :outcome :reflect-failed
                   :error program-md :program-md nil}
                  ;; Spawn the Lab
-                 (-> (sm/spawn-lab {:program_md program-md})
+                 (-> (sm/spawn-lab {:program_md program-md :source "reflect"})
                      (.then (fn [spawn-result]
                               (println (str "[autonomous] Spawn result: " (subs spawn-result 0 (min 100 (count spawn-result)))))
                               ;; Extract generation number from spawn result
