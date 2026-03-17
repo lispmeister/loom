@@ -13,10 +13,6 @@ The core insight: ClojureScript is homoiconic (code is data), so the agent manip
   <img src="loom-demo.svg" alt="Loom generation cycle: reflect → spawn → work → verify → promote" width="800">
 </p>
 
-<p align="center">
-  <img src="loom-architecture.svg" alt="Loom Architecture — Prime, Supervisor, and Lab interaction" width="800">
-</p>
-
 ## How It Works
 
 Each generation follows the same cycle: **reflect → spawn → work → verify → promote or rollback → repeat**.
@@ -28,6 +24,10 @@ Each generation follows the same cycle: **reflect → spawn → work → verify 
 5. **Promote or rollback** — Success: merge to main, tag, clean up. Failure: discard the branch, destroy the container
 
 This loop can run unattended. Prime reflects on what to improve next, and the cycle repeats.
+
+<p align="center">
+  <img src="loom-architecture.svg" alt="Loom Architecture — Prime, Supervisor, and Lab interaction" width="800">
+</p>
 
 ## Architecture
 
