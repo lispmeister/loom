@@ -183,3 +183,94 @@
         (is (nil? (:failure-reason entry)))
         (is (= "Add new feature" (:program-summary entry))))
       (cleanup dir))))
+
+;; ---------------------------------------------------------------------------
+;; infer-task-type tests
+;; ---------------------------------------------------------------------------
+
+(deftest infer-task-type-refactor-test
+  (testing "detects refactor keyword"
+    (is (= "refactor" (#'auto/infer-task-type "Refactor the scheduler module"))))
+  (testing "detects clean keyword"
+    (is (= "refactor" (#'auto/infer-task-type "Clean up dead code in supervisor")))))
+
+(deftest infer-task-type-test-addition-test
+  (testing "detects test keyword"
+    (is (= "test-addition" (#'auto/infer-task-type "Add test coverage for the fitness scorer"))))
+  (testing "detects spec keyword"
+    (is (= "test-addition" (#'auto/infer-task-type "Write spec for the eval protocol")))))
+
+(deftest infer-task-type-bug-fix-test
+  (testing "detects fix keyword"
+    (is (= "bug-fix" (#'auto/infer-task-type "Fix the off-by-one error in loop-step"))))
+  (testing "detects bug keyword"
+    (is (= "bug-fix" (#'auto/infer-task-type "Investigate and resolve the memory bug")))))
+
+(deftest infer-task-type-new-feature-test
+  (testing "detects add keyword"
+    (is (= "new-feature" (#'auto/infer-task-type "Add program.md hash tracking"))))
+  (testing "detects implement keyword"
+    (is (= "new-feature" (#'auto/infer-task-type "Implement the reflect loop"))))
+  (testing "detects create keyword"
+    (is (= "new-feature" (#'auto/infer-task-type "Create the supervisor dashboard"))))
+  (testing "detects new keyword"
+    (is (= "new-feature" (#'auto/infer-task-type "New: autonomous stopping conditions")))))
+
+(deftest infer-task-type-file-edit-test
+  (testing "detects edit keyword"
+    (is (= "file-edit" (#'auto/infer-task-type "Edit the CLAUDE.md instructions"))))
+  (testing "detects modify keyword"
+    (is (= "file-edit" (#'auto/infer-task-type "Modify the fitness log format"))))
+  (testing "detects update keyword"
+    (is (= "file-edit" (#'auto/infer-task-type "Update the schema definitions"))))
+  (testing "detects change keyword"
+    (is (= "file-edit" (#'auto/infer-task-type "Change how tokens are counted")))))
+
+(deftest infer-task-type-other-test
+  (testing "returns other for unmatched text"
+    (is (= "other" (#'auto/infer-task-type "Investigate performance characteristics"))))
+  (testing "returns other for nil"
+    (is (= "other" (#'auto/infer-task-type nil))))
+  (testing "returns other for empty string"
+    (is (= "other" (#'auto/infer-task-type "")))))
+
+;; ---------------------------------------------------------------------------
+;; program-md-hash tests
+;; ---------------------------------------------------------------------------
+
+(deftest program-md-hash-consistent-test
+  (testing "same input produces same hash"
+    (let [text "# Improve test coverage\nAdd more assertions to the eval tests."]
+      (is (= (#'auto/program-md-hash text)
+             (#'auto/program-md-hash text)))))
+  (testing "different input produces different hash"
+    (is (not= (#'auto/program-md-hash "foo")
+              (#'auto/program-md-hash "bar"))))
+  (testing "returns nil for nil input"
+    (is (nil? (#'auto/program-md-hash nil))))
+  (testing "hash is a 64-character hex string (SHA-256)"
+    (let [h (#'auto/program-md-hash "hello world")]
+      (is (= 64 (count h)))
+      (is (re-matches #"[0-9a-f]+" h)))))
+
+;; ---------------------------------------------------------------------------
+;; Fitness log program-md-hash and task-type field tests
+;; ---------------------------------------------------------------------------
+
+(deftest fitness-log-program-md-fields-test
+  (testing "fitness log preserves program-md-hash and task-type"
+    (let [dir (make-tmpdir)
+          tmp (.join path dir "tmp")
+          program-text "Fix the broken scheduler loop"]
+      (.mkdirSync fs tmp #js {:recursive true})
+      (auto/append-fitness-log dir {:generation      5
+                                    :outcome         "rolled-back"
+                                    :program-md-hash (#'auto/program-md-hash program-text)
+                                    :task-type       (#'auto/infer-task-type program-text)
+                                    :timestamp       "2026-03-17T00:00:00.000Z"})
+      (let [entries (auto/read-fitness-log dir)
+            entry   (first entries)]
+        (is (= 1 (count entries)))
+        (is (= 64 (count (:program-md-hash entry))))
+        (is (= "bug-fix" (:task-type entry))))
+      (cleanup dir))))

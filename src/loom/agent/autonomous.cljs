@@ -6,7 +6,8 @@
             [loom.agent.self-modify :as sm]
             [loom.supervisor.fitness :as fitness]
             ["node:fs" :as fs]
-            ["node:path" :as path]))
+            ["node:path" :as path]
+            ["node:crypto" :as crypto]))
 
 ;; ---------------------------------------------------------------------------
 ;; Configuration from env
@@ -26,6 +27,37 @@
   "Stop if no fitness improvement over this many consecutive generations."
   (let [v (some-> js/process .-env .-LOOM_PLATEAU_WINDOW)]
     (if v (js/parseInt v 10) 3)))
+
+;; ---------------------------------------------------------------------------
+;; program.md helpers
+;; ---------------------------------------------------------------------------
+
+(defn- program-md-hash
+  "Return the SHA-256 hex digest of a program.md string, or nil if text is nil."
+  [text]
+  (when text
+    (-> (.createHash crypto "sha256")
+        (.update text "utf8")
+        (.digest "hex"))))
+
+(defn- infer-task-type
+  "Infer a task category from the content of a program.md string.
+   Checks for keywords in priority order and returns a string label."
+  [text]
+  (let [lower (if text (str/lower-case text) "")]
+    (cond
+      (or (str/includes? lower "refactor") (str/includes? lower "clean"))       "refactor"
+      (or (str/includes? lower "test")     (str/includes? lower "spec"))        "test-addition"
+      (or (str/includes? lower "fix")      (str/includes? lower "bug"))         "bug-fix"
+      (or (str/includes? lower "add")
+          (str/includes? lower "new")
+          (str/includes? lower "implement")
+          (str/includes? lower "create"))                                        "new-feature"
+      (or (str/includes? lower "edit")
+          (str/includes? lower "modify")
+          (str/includes? lower "update")
+          (str/includes? lower "change"))                                        "file-edit"
+      :else                                                                      "other")))
 
 ;; ---------------------------------------------------------------------------
 ;; Fitness log (append-only JSONL)
@@ -329,6 +361,8 @@
                                                       :cycle-duration-ms   (get-in result [:timing :total-ms])
                                                       :phase-timing        (:timing result)
                                                       :program-summary     (:program-summary result)
+                                                      :program-md-hash     (program-md-hash (:program-md result))
+                                                      :task-type           (infer-task-type (:program-md result))
                                                       :timestamp           (.toISOString (js/Date.))})
 
                                  (println (str "[autonomous] Cycle complete: gen=" gen
