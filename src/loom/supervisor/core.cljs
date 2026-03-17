@@ -15,6 +15,26 @@
   (when-not (.existsSync fs path)
     (.writeFileSync fs path "[]" "utf8")))
 
+(defn reconcile-stale-generations
+  "Find any :in-progress generations whose :created timestamp is older than
+   timeout-ms milliseconds ago and mark them :timeout. Logs each reconciled
+   generation. Returns the count of reconciled records."
+  [path timeout-ms]
+  (let [now       (.now js/Date)
+        gens      (gen/read-generations path)
+        stale?    (fn [g]
+                    (and (= :in-progress (:outcome g))
+                         (let [created-ms (.parse js/Date (:created g))]
+                           (> (- now created-ms) timeout-ms))))
+        stale     (filter stale? gens)]
+    (doseq [g stale]
+      (println (str "Reconciling stale generation " (:generation g)
+                    " (created " (:created g) ") -> :timeout"))
+      (gen/update-generation path (:generation g)
+                             {:outcome   :timeout
+                              :completed (.toISOString (js/Date.))}))
+    (count stale)))
+
 (defn main
   "Supervisor entry point. Initializes generations.edn, verifies the container
    CLI is available, ensures the loom-net network exists, and starts the HTTP
@@ -37,6 +57,9 @@
                     :lab-base-dir     lab-dir
                     :lab-timeout-ms   timeout-ms}]
     (ensure-generations-file gens-path)
+    (let [reconciled (reconcile-stale-generations gens-path timeout-ms)]
+      (when (pos? reconciled)
+        (println (str "Reconciled " reconciled " stale in-progress generation(s) on startup"))))
     (println "Loom supervisor starting...")
     (-> (container/cli-available?)
         (.then (fn [available?]

@@ -1,7 +1,8 @@
 (ns loom.supervisor-test
   (:require [cljs.test :refer [deftest is async testing]]
             [loom.supervisor.git :as git]
-            [loom.supervisor.generations :as gen]))
+            [loom.supervisor.generations :as gen]
+            [loom.supervisor.core :as core]))
 
 (def ^:private fs (js/require "node:fs"))
 (def ^:private path-mod (js/require "node:path"))
@@ -201,3 +202,51 @@
     (is (true? (gen/valid? (assoc sample-gen :source :cli))))
     (is (false? (gen/valid? (assoc sample-gen :source :invalid))))
     (is (true? (gen/valid? sample-gen)) "source is optional — omitting it still passes")))
+
+;; -- Reconcile stale generations tests --
+
+(deftest reconcile-stale-generations-marks-old-in-progress-as-timeout
+  (testing "reconcile-stale-generations updates old :in-progress records to :timeout"
+    (let [path       (make-temp-edn-path)
+          ;; A generation created 10 minutes ago (older than 5-min timeout)
+          old-ts     (.toISOString (js/Date. (- (.now js/Date) 600000)))
+          ;; A generation created 1 minute ago (within timeout)
+          recent-ts  (.toISOString (js/Date. (- (.now js/Date) 60000)))
+          old-gen    {:generation 1 :parent 0 :branch "gen-1"
+                      :program-md-hash "abc" :outcome :in-progress
+                      :created old-ts :container-id "ctr-1"}
+          recent-gen {:generation 2 :parent 0 :branch "gen-2"
+                      :program-md-hash "def" :outcome :in-progress
+                      :created recent-ts :container-id "ctr-2"}
+          done-gen   {:generation 3 :parent 0 :branch "gen-3"
+                      :program-md-hash "ghi" :outcome :done
+                      :created old-ts :container-id "ctr-3"
+                      :completed old-ts}]
+      (gen/append-generation path old-gen)
+      (gen/append-generation path recent-gen)
+      (gen/append-generation path done-gen)
+      ;; 5-minute timeout in ms
+      (let [reconciled (core/reconcile-stale-generations path 300000)
+            gens       (gen/read-generations path)
+            g1         (first gens)
+            g2         (second gens)
+            g3         (nth gens 2)]
+        ;; Only the old :in-progress should be reconciled
+        (is (= 1 reconciled))
+        (is (= :timeout (:outcome g1)))
+        (is (string? (:completed g1)))
+        ;; Recent :in-progress should be untouched
+        (is (= :in-progress (:outcome g2)))
+        (is (nil? (:completed g2)))
+        ;; :done record should be untouched
+        (is (= :done (:outcome g3)))))))
+
+(deftest reconcile-stale-generations-no-stale
+  (testing "reconcile-stale-generations returns 0 when no stale records exist"
+    (let [path      (make-temp-edn-path)
+          recent-ts (.toISOString (js/Date. (- (.now js/Date) 60000)))
+          gen1      {:generation 1 :parent 0 :branch "gen-1"
+                     :program-md-hash "abc" :outcome :in-progress
+                     :created recent-ts :container-id "ctr-1"}]
+      (gen/append-generation path gen1)
+      (is (= 0 (core/reconcile-stale-generations path 300000))))))
