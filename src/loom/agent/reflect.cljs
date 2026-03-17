@@ -187,7 +187,9 @@ Your output MUST follow this structure:
 
 (defn reflect-and-propose
   "Analyze recent generation history and user priorities, then propose the
-   next program.md via LLM. Returns a promise resolving to the proposed text.
+   next program.md via LLM.
+   Returns a promise resolving to:
+     {:program-md \"...\" :token-usage {:input N :output N}}
    On any error, resolves with an error string (never rejects)."
   [{:keys [repo_path lookback]
     :or   {repo_path "." lookback 5}}]
@@ -212,7 +214,8 @@ Your output MUST follow this structure:
                          (let [text (claude/extract-text response)]
                            (if (str/blank? text)
                              "Error: Claude returned empty response"
-                             text)))))
+                             {:program-md  text
+                              :token-usage (:token-usage response)})))))
               (.catch (fn [err]
                         (str "Error: reflect exception: " (.-message err))))))
         (catch :default err

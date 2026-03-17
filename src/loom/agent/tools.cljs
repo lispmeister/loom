@@ -137,6 +137,18 @@
       (into self-modify/tool-definitions)
       (into reflect/tool-definitions)))
 
+(defn- reflect-and-propose-tool
+  "Wrap reflect-and-propose for the tool interface: extracts :program-md string
+   from the result map so Claude receives a plain string, not a Clojure map.
+   Error strings (from reflect failure) are passed through unchanged."
+  [input]
+  (-> (reflect/reflect-and-propose input)
+      (.then (fn [result]
+               (if (map? result)
+                 (:program-md result)
+                 result)))))
+
 (def registry
   "All tools: core + self-modify + reflect."
-  (merge base-registry self-modify/registry reflect/registry))
+  (-> (merge base-registry self-modify/registry reflect/registry)
+      (assoc "reflect_and_propose" reflect-and-propose-tool)))

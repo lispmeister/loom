@@ -293,18 +293,21 @@ If the diff is empty or trivially cosmetic (whitespace, comments only), reject i
             :max-tokens 1024})
           (.then (fn [response]
                    (if (:error response)
-                     {:approved   false
-                      :issues     [(str "LLM review API error: "
-                                        (or (:message response) (:body response)))]
-                      :confidence :low
-                      :summary    "API error — treating as rejection"}
+                     {:approved            false
+                      :issues              [(str "LLM review API error: "
+                                                 (or (:message response) (:body response)))]
+                      :confidence          :low
+                      :summary             "API error — treating as rejection"
+                      :review-token-usage  nil}
                      (let [text (claude/extract-text response)]
-                       (parse-verdict text)))))
+                       (assoc (parse-verdict text)
+                              :review-token-usage (:token-usage response))))))
           (.catch (fn [err]
-                    {:approved   false
-                     :issues     [(str "LLM review exception: " (.-message err))]
-                     :confidence :low
-                     :summary    "Exception — treating as rejection"}))))))
+                    {:approved            false
+                     :issues              [(str "LLM review exception: " (.-message err))]
+                     :confidence          :low
+                     :summary             "Exception — treating as rejection"
+                     :review-token-usage  nil}))))))
 
 (defn verify-generation
   "Independently verify a Lab generation's work: get diff, checkout branch,
@@ -378,10 +381,11 @@ If the diff is empty or trivially cosmetic (whitespace, comments only), reject i
                                                                 (-> (llm-review-diff diff-text program-md)
                                                                     (.then (fn [verdict]
                                                                              (reset! last-verification
-                                                                                     {:generation   generation
-                                                                                      :test-results test-counts
-                                                                                      :diff-stats   (:diff-stats diffs)
-                                                                                      :llm-verdict  verdict})
+                                                                                     {:generation          generation
+                                                                                      :test-results        test-counts
+                                                                                      :diff-stats          (:diff-stats diffs)
+                                                                                      :llm-verdict         (dissoc verdict :review-token-usage)
+                                                                                      :review-token-usage  (:review-token-usage verdict)})
                                                                              (str base-result
                                                                                   "\n\nLLM Review: "
                                                                                   (if (:approved verdict) "APPROVED" "REJECTED")
