@@ -10,6 +10,10 @@ Loom is a coding agent that rewrites its own source code. Written in pure Clojur
 The core insight: ClojureScript is homoiconic (code is data), so the agent manipulates syntax trees, not text. Experiments run in VM-level isolation, so a bad generation is just a discarded container. Everything the agent can change — its loop, tools, prompts — is mutable. Everything it can't — the [Malli schemas](https://github.com/metosin/malli) that define the protocol — is a fixed point.
 
 <p align="center">
+  <img src="loom-demo.svg" alt="Loom generation cycle: reflect → spawn → work → verify → promote" width="800">
+</p>
+
+<p align="center">
   <img src="loom-architecture.svg" alt="Loom Architecture — Prime, Supervisor, and Lab interaction" width="800">
 </p>
 
