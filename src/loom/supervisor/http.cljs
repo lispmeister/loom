@@ -227,7 +227,8 @@
                           (when record
                             (save-report config gen-num record outcome
                                          :extra-data (cond-> {}
-                                                       token-usage (assoc :token-usage token-usage))))
+                                                       token-usage (assoc :token-usage token-usage)
+                                                       (:tool-stats final-status) (assoc :tool-stats (:tool-stats final-status)))))
                           ;; Fetch Lab branch into main repo so verify/promote can find it
                           (when (and lab-dir (= outcome :done))
                             (-> (git/fetch-branch repo-path lab-dir branch)
