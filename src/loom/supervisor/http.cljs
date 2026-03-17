@@ -334,9 +334,10 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :promoted :completed now})
-                         (save-report config gen-num record :promoted
-                                      :extra-data (when verification
-                                                    {:verification verification}))
+                         (lab/update-generation-report
+                          (programs-dir config) gen-num
+                          (cond-> {:outcome "promoted" :completed now}
+                            verification (assoc :verification verification)))
                          (cleanup-lab-workspace config gen-num)
                          (emit-log "promote" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
@@ -369,9 +370,10 @@
                        (let [now (.toISOString (js/Date.))]
                          (gen/update-generation gens-path gen-num
                                                 {:outcome :failed :completed now})
-                         (save-report config gen-num record :failed
-                                      :extra-data (when verification
-                                                    {:verification verification}))
+                         (lab/update-generation-report
+                          (programs-dir config) gen-num
+                          (cond-> {:outcome "rolled-back" :completed now}
+                            verification (assoc :verification verification)))
                          (cleanup-lab-workspace config gen-num)
                          (emit-log "rollback" {:generation gen-num})
                          (http/json-response 200 {:generation gen-num
