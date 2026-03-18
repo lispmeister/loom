@@ -134,7 +134,7 @@ src/
     lab/           — Eval server + autonomous worker (tool-call tracking)
 test/
   loom/            — Tests (236 tests, 607 assertions)
-architecture-reviews/  — Periodic system reviews
+architecture-reviews/  — Periodic system reviews, CAMBRIAN-SPEC-001
 ```
 
 ## Key Design Decisions
@@ -244,6 +244,7 @@ node out/agent.js autonomous
 
 ### Blog Posts
 
+- [CAMBRIAN: What If the Spec Is the Organism?](https://lispmeister.github.io/deeprecursion/posts/2026-03-18-eschaton.html) — Evolving specifications instead of patching code: the next phase
 - [It Rewrote Itself: Loom's First Autonomous Self-Modification](https://lispmeister.github.io/deeprecursion/posts/2026-03-17-it-rewrote-itself.html) — Gen-72 autonomously modified its own source and promoted to master in 56 seconds
 - [The Prime and the Lab](https://lispmeister.github.io/deeprecursion/posts/2026-03-12-recursive-self-improvement.html) — Architecture spec: why three components, why ClojureScript, why containers
 - [The program.md Protocol](https://lispmeister.github.io/deeprecursion/posts/2026-03-13-program-md.html) — The contract that steers each generation
@@ -259,6 +260,16 @@ node out/agent.js autonomous
 - [Apple Containerization](https://github.com/apple/container) — Container runtime
 - [ClojureScript Self-Hosting](https://clojurescript.org/guides/self-hosting) — `cljs.js` docs
 - [beads](https://github.com/lispmeister/beads) — Issue tracking
+
+## Next Phase: CAMBRIAN
+
+Loom's current model patches code and promotes diffs. CAMBRIAN is the next evolution: **evolve the specification, regenerate the agent from scratch each generation.**
+
+- **Spec as genome** — A 300-line generative specification ([CAMBRIAN-SPEC-001](architecture-reviews/CAMBRIAN-SPEC-001.md)) describes what the agent does. An LLM generates the full codebase from it.
+- **LLM diversity as mutation** — Different models (Opus, Sonnet, Haiku, GPT-4, Mistral) interpreting the same spec produce natural variation.
+- **Resource constraints as selection** — Token budgets are reproductive capacity. If your spec produces bloated code, your lineage dies.
+
+See the [architecture review](architecture-reviews/review-2026-03-18-001.md) and [blog post](https://lispmeister.github.io/deeprecursion/posts/2026-03-18-eschaton.html) for the full proposal.
 
 ## License
 

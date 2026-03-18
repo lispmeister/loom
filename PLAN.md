@@ -310,6 +310,51 @@ Added `scripts/check-credits.sh` for pre-run cost validation. Observed costs per
 
 ---
 
+---
+
+## Next Phase: CAMBRIAN — Spec-Based Evolution
+
+**Status:** Proposal reviewed ([review-2026-03-18-001](architecture-reviews/review-2026-03-18-001.md)). CAMBRIAN-SPEC-001 written ([spec](architecture-reviews/CAMBRIAN-SPEC-001.md)).
+
+### Core Insight
+
+Loom's current model evolves code via patches (Lab modifies files → diffs merge to master). Over many generations this accumulates cruft. CAMBRIAN replaces this with **genotype/phenotype separation**: evolve the specification (genotype), regenerate the entire codebase from scratch each generation (phenotype).
+
+- **Spec = genome** — ~300 lines describing architecture, contracts, APIs, acceptance criteria
+- **Code = organism** — ~2,600 lines generated from spec by an LLM. Disposable. Lives one generation.
+- **LLM diversity = mutation** — Different models interpret the same spec differently, producing natural variation
+- **Resource budget = selection pressure** — Token budgets are reproductive capacity. Wasteful specs can't afford offspring.
+
+### Phased Roadmap
+
+| Phase | Goal | Cost Estimate | Status |
+|-------|------|---------------|--------|
+| 1. Spec Genesis | Prove an LLM can regenerate working Loom from CAMBRIAN-SPEC-001 | $20–50 | **Next** |
+| 2. Local Evolution | Spec mutation, fitness benchmark, run generations locally | $150–350 | Planned |
+| 3. Distributed Spawning | Cloud provider, resource accounting, multi-node reproduction | $500–2,000 | Planned |
+| 4. Autonomy | Income generation, network independence (deferred until data from 1–3) | TBD | Deferred |
+
+### Phase 1: Spec Genesis (immediate next step)
+
+1. Hand CAMBRIAN-SPEC-001 to an LLM with instructions to produce a complete ClojureScript agent
+2. Test: does `npm test && node out/test.js` pass?
+3. Measure: birth cost (tokens), code quality, test pass rate
+4. Iterate the spec format until regeneration is reliable
+
+### Key Open Questions
+
+- **Fitness function**: Must couple survival to usefulness (task benchmarks), not just reproduction
+- **Spec mutation strategy**: LLM-guided vs. random vs. crossover vs. failure-directed
+- **Economic viability**: $0.10–$5 per birth; most offspring non-viable; lineages go extinct without external funding
+
+### References
+
+- [CAMBRIAN-SPEC-001](architecture-reviews/CAMBRIAN-SPEC-001.md) — The generative specification
+- [Architecture Review 2026-03-18-001](architecture-reviews/review-2026-03-18-001.md) — Full proposal analysis
+- [Blog: CAMBRIAN](https://lispmeister.github.io/deeprecursion/posts/2026-03-18-eschaton.html) — Public writeup
+
+---
+
 ## Not in v0
 
 - Streaming from Claude API
