@@ -2,6 +2,26 @@
 
 All notable changes to Loom are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.0] — 2026-03-20
+
+Final release. Loom explored source-code-level self-modification and reached its natural endpoint. The successor project, [CAMBRIAN](https://github.com/lispmeister/cambrian), continues the work at the specification level.
+
+### Added
+
+- Final retrospective report ([review-2026-03-20-001](architecture-reviews/review-2026-03-20-001.md)) — comprehensive analysis of what worked, what didn't, and lessons for CAMBRIAN
+- CAMBRIAN architecture contract ([CAMBRIA-ARCH-CONTRACT-001](architecture-reviews/CAMBRIA-ARCH-CONTRACT-001.md))
+
+### Changed
+
+- README and PLAN updated to reflect v0.2.0 as the endpoint
+- README now points to CAMBRIAN as the successor project
+
+### Summary
+
+- 72 generations attempted, 17 autonomous, 1 promoted (gen-72, Opus 4.6)
+- 236 tests, 607 assertions
+- Core finding: source-code-level evolution accumulates cruft and doesn't scale; spec-level evolution (CAMBRIAN) is the right abstraction
+
 ## [0.1.0] — 2026-03-17
 
 First public release. The self-modification pipeline is functional end-to-end: Prime can autonomously reflect, spawn Labs, verify results, and promote successful generations.
@@ -33,4 +53,5 @@ First public release. The self-modification pipeline is functional end-to-end: P
 - MIT license, GitHub Actions CI, README badges
 - Architecture SVG with light/dark mode support
 
+[0.2.0]: https://github.com/lispmeister/loom/releases/tag/v0.2.0
 [0.1.0]: https://github.com/lispmeister/loom/releases/tag/v0.1.0

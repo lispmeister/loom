@@ -1,5 +1,7 @@
 # Loom — Recursive Self-Improving Agent
 
+> **Status: Final release (v0.2.0).** Loom explored source-code-level self-modification and proved the pipeline works. The successor project, [CAMBRIAN](https://github.com/lispmeister/cambrian), evolves specifications instead of code. See the [final retrospective](architecture-reviews/review-2026-03-20-001.md) for lessons learned.
+
 [![CI](https://github.com/lispmeister/loom/actions/workflows/ci.yml/badge.svg)](https://github.com/lispmeister/loom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![ClojureScript](https://img.shields.io/badge/ClojureScript-Node.js-green.svg)](https://clojurescript.org/)
@@ -261,15 +263,18 @@ node out/agent.js autonomous
 - [ClojureScript Self-Hosting](https://clojurescript.org/guides/self-hosting) — `cljs.js` docs
 - [beads](https://github.com/lispmeister/beads) — Issue tracking
 
-## Next Phase: CAMBRIAN
+## Successor: CAMBRIAN
 
-Loom's current model patches code and promotes diffs. CAMBRIAN is the next evolution: **evolve the specification, regenerate the agent from scratch each generation.**
+Loom proved that source-code-level evolution works but doesn't scale — 72 generations, 1 promoted (1.4% success rate). The core limitation: evolving code via patches accumulates cruft and is path-dependent.
 
-- **Spec as genome** — A 300-line generative specification ([CAMBRIAN-SPEC-001](architecture-reviews/CAMBRIAN-SPEC-001.md)) describes what the agent does. An LLM generates the full codebase from it.
-- **LLM diversity as mutation** — Different models (Opus, Sonnet, Haiku, GPT-4, Mistral) interpreting the same spec produce natural variation.
-- **Resource constraints as selection** — Token budgets are reproductive capacity. If your spec produces bloated code, your lineage dies.
+**[CAMBRIAN](https://github.com/lispmeister/cambrian)** is the successor project. It applies Loom's architectural lessons at a higher abstraction level:
 
-See the [architecture review](architecture-reviews/review-2026-03-18-001.md) and [blog post](https://lispmeister.github.io/deeprecursion/posts/2026-03-18-eschaton.html) for the full proposal.
+- **Spec as genome** — A generative specification describes what the agent does. An LLM generates the full codebase from scratch each generation.
+- **LLM diversity as mutation** — Different models interpreting the same spec produce natural variation.
+- **Resource constraints as selection** — Token budgets are reproductive capacity.
+- **Clean regeneration** — No accumulated cruft. Every generation starts fresh from the spec.
+
+See the [final retrospective](architecture-reviews/review-2026-03-20-001.md), the [CAMBRIAN proposal review](architecture-reviews/review-2026-03-18-001.md), and the [blog post](https://lispmeister.github.io/deeprecursion/posts/2026-03-18-eschaton.html) for details.
 
 ## License
 

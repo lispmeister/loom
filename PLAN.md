@@ -4,7 +4,7 @@
 
 A self-modifying coding agent that can rewrite its own code, test modifications in isolated Lab containers, and promote successful changes — all in pure ClojureScript on Node.js.
 
-**Status:** First autonomous promotion achieved (gen-72, Opus 4.6). Full pipeline validated end-to-end: reflect → spawn → verify (tests + LLM review) → promote. 17 autonomous generations across 3 models (Haiku, Minimax M2.5, Opus 4.6), 1 promoted. Multi-provider LLM support operational (Anthropic + Minimax). 236 tests, 607 assertions. Tasks tracked in [beads](https://github.com/lispmeister/beads) (`bd ready`). Architecture reviews in [`architecture-reviews/`](architecture-reviews/).
+**Status: Final release (v0.2.0).** Source-code-level evolution explored and concluded. First autonomous promotion achieved (gen-72, Opus 4.6). Full pipeline validated end-to-end: reflect → spawn → verify (tests + LLM review) → promote. 72 generations attempted, 17 autonomous across 3 models, 1 promoted. 236 tests, 607 assertions. Successor project: [CAMBRIAN](https://github.com/lispmeister/cambrian) (spec-level evolution). See [final retrospective](architecture-reviews/review-2026-03-20-001.md).
 
 ---
 
